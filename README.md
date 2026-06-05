@@ -80,6 +80,14 @@ screenshots, or support threads.
 
 Diagnostics redact `net_key`, `app_key`, and pasted JSON fields.
 
+## Credits
+
+This integration builds on public protocol research and Amaran Bluetooth tooling
+from:
+
+- [wesbos/amaran-BLE-control](https://github.com/wesbos/amaran-BLE-control)
+- [theontho/amaran-cli](https://github.com/theontho/amaran-cli)
+
 ## Known Limitations
 
 - Battery is unavailable until decoded from real status data.

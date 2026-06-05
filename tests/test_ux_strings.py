@@ -33,6 +33,12 @@ class UserFacingStringTest(unittest.TestCase):
 
         self.assertNotIn("fixture", prose)
 
+    def test_readme_credits_protocol_tools(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("https://github.com/wesbos/amaran-BLE-control", readme)
+        self.assertIn("https://github.com/theontho/amaran-cli", readme)
+
 
 def _string_values(value: object) -> list[str]:
     if isinstance(value, str):

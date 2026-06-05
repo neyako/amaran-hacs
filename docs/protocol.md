@@ -49,7 +49,9 @@ Reference command types:
 | color temperature | `0x82` |
 | HSI/RGB | `0x81` |
 
-Known sample payloads generated from public Amaran Bluetooth tooling:
+Known sample payloads were cross-checked against public Amaran Bluetooth tooling,
+including [wesbos/amaran-BLE-control](https://github.com/wesbos/amaran-BLE-control)
+and [theontho/amaran-cli](https://github.com/theontho/amaran-cli):
 
 | Command | Payload |
 | --- | --- |
