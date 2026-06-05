@@ -78,6 +78,8 @@ class AmaranSidusTransportSensor(SensorEntity):
             "node_address": self._client.node_address,
             "light_reachable": self._client.fixture_reachable,
             "light_stale_seconds": self._client.fixture_stale_seconds,
+            "light_presence_checking": self._client.presence_checking_enabled,
+            "light_unavailable_after_seconds": self._client.presence_unavailable_after,
             "last_advertisement_seen": self._client.last_advertisement_seen,
             "last_advertisement_address": self._client.last_advertisement_address,
             "last_advertisement_rssi": self._client.last_advertisement_rssi,
@@ -128,6 +130,17 @@ class AmaranSidusBatterySensor(SensorEntity):
     def __init__(self, client: AmaranSidusClient) -> None:
         self._client = client
         self._attr_unique_id = battery_sensor_unique_id(client)
+        self._unsubscribe_battery: Any | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to real decoded battery updates."""
+
+        self._unsubscribe_battery = self._client.subscribe_battery(
+            self._handle_battery_update
+        )
+        async_on_remove = getattr(self, "async_on_remove", None)
+        if callable(async_on_remove):
+            async_on_remove(self._unsubscribe_battery)
 
     @property
     def native_value(self) -> int | None:
@@ -140,6 +153,12 @@ class AmaranSidusBatterySensor(SensorEntity):
         """Return false when no real battery value is known."""
 
         return self.native_value is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return decoded packet diagnostics when known."""
+
+        return self._client.battery_power_info
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -155,6 +174,9 @@ class AmaranSidusBatterySensor(SensorEntity):
         if ":" in bluetooth_address:
             info["connections"] = {(dr.CONNECTION_BLUETOOTH, bluetooth_address)}
         return info
+
+    def _handle_battery_update(self) -> None:
+        self.async_write_ha_state()
 
 
 def transport_sensor_unique_id(client: AmaranSidusClient) -> str:

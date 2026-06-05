@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .const import (
     CONF_ADDRESS,
+    CONF_BATTERY_CAPABLE,
     CONF_BLE_MAC,
     CONF_FIXTURE_CATALOG,
     CONF_FIXTURES,
@@ -16,14 +17,22 @@ from .const import (
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
     CONF_SELECTED_FIXTURE_IDS,
+    DEFAULT_POWER_STATUS_CAPTURE_SECONDS,
+    DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
+    DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     MANUFACTURER,
     PROXY_SELECTION_AUTO,
+    SERVICE_FIELD_CAPTURE_SECONDS,
+    SERVICE_FIELD_ENTRY_ID,
+    SERVICE_FIELD_NODE_ADDRESS,
+    SERVICE_REQUEST_POWER_STATUS,
 )
 from .fixtures import (
     fixture_device_identifier,
     fixture_entry_data,
     fixture_unique_id,
+    is_battery_capable_light,
 )
 from .product_catalog import product_catalog
 
@@ -39,7 +48,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.version > 2:
         return False
-    if entry.version == 2 and entry.minor_version >= 1:
+    if entry.version == 2 and entry.minor_version >= 2:
         return True
 
     data = dict(entry.data)
@@ -72,7 +81,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     primary = migration_fixtures[0] if grouped else data
-    primary_data = fixture_entry_data(data, primary)
+    primary_data = _fixture_entry_data_with_capabilities(data, primary)
     _migrate_fixture_device_identifier(hass, entry, primary_data)
     options = dict(entry.options)
     options.pop(CONF_SELECTED_FIXTURE_IDS, None)
@@ -83,7 +92,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         title=str(primary_data[CONF_NAME]),
         unique_id=fixture_unique_id(primary_data),
         version=2,
-        minor_version=1,
+        minor_version=2,
     )
 
     if grouped:
@@ -93,13 +102,23 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.config_entries.flow.async_init(
                 DOMAIN,
                 context={"source": config_entries.SOURCE_IMPORT},
-                data=fixture_entry_data(data, fixture),
+                data=_fixture_entry_data_with_capabilities(data, fixture),
             )
         _LOGGER.warning(
             "Migrated grouped amaran entry to %s light entries",
             len(migration_fixtures),
         )
     return True
+
+
+def _fixture_entry_data_with_capabilities(
+    import_data: dict[str, Any], fixture: dict[str, Any]
+) -> dict[str, Any]:
+    """Backfill stable capabilities missing from older fixture entries."""
+
+    data = fixture_entry_data(import_data, fixture)
+    data.setdefault(CONF_BATTERY_CAPABLE, is_battery_capable_light(data))
+    return data
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -132,18 +151,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for fixture in fixtures
     ]
 
-    await mesh_network.async_setup()
+    for client in clients:
+        await client.async_setup()
 
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = clients
-    platforms = (Platform.LIGHT, Platform.SENSOR)
-    await hass.config_entries.async_forward_entry_setups(entry, platforms)
-    _migrate_fixture_device_identifier(hass, entry, fixtures[0])
-    from .sensor import async_disable_transport_sensors
-
-    await async_disable_transport_sensors(hass, clients)
-
-    mesh_network.async_start_warmup("startup")
+    _async_register_services(hass)
 
     @callback
     def _async_discovered_device(
@@ -168,10 +181,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _async_discovered_device,
                 {"address": callback_address},
                 bluetooth.BluetoothScanningMode.ACTIVE,
-                scan_interval=300.0,
-                scan_duration=10.0,
+                scan_interval=DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
+                scan_duration=DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
             )
         )
+
+    platforms = (Platform.LIGHT, Platform.SENSOR)
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    _migrate_fixture_device_identifier(hass, entry, fixtures[0])
+    from .sensor import async_disable_transport_sensors
+
+    await async_disable_transport_sensors(hass, clients)
+
+    mesh_network.async_start_warmup("startup")
 
     async def _async_stop(_event: object) -> None:
         await mesh_network.async_close()
@@ -284,7 +306,97 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             from .client import async_release_mesh_network
 
             await async_release_mesh_network(hass, entry, clients[0]._mesh_network)
+        if not hass.data.get(DOMAIN):
+            hass.services.async_remove(DOMAIN, SERVICE_REQUEST_POWER_STATUS)
     return unload_ok
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register debug-only services once."""
+
+    if hass.services.has_service(DOMAIN, SERVICE_REQUEST_POWER_STATUS):
+        return
+
+    import voluptuous as vol
+    from homeassistant.exceptions import HomeAssistantError
+
+    async def _async_request_power_status(call: Any) -> None:
+        try:
+            client = _resolve_power_status_client(hass, call.data)
+            capture_seconds = float(
+                call.data.get(
+                    SERVICE_FIELD_CAPTURE_SECONDS,
+                    DEFAULT_POWER_STATUS_CAPTURE_SECONDS,
+                )
+            )
+            await client.async_request_power_status(capture_seconds=capture_seconds)
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Failed to request Amaran power status: {err!r}"
+            ) from err
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REQUEST_POWER_STATUS,
+        _async_request_power_status,
+        schema=vol.Schema(
+            {
+                vol.Optional(SERVICE_FIELD_ENTRY_ID): str,
+                vol.Optional(SERVICE_FIELD_NODE_ADDRESS): vol.Any(str, int),
+                vol.Optional(
+                    SERVICE_FIELD_CAPTURE_SECONDS,
+                    default=DEFAULT_POWER_STATUS_CAPTURE_SECONDS,
+                ): vol.Coerce(float),
+            }
+        ),
+    )
+
+
+def _resolve_power_status_client(hass: HomeAssistant, data: dict[str, Any]) -> Any:
+    """Resolve one loaded light for the power-status debug service."""
+
+    from homeassistant.exceptions import HomeAssistantError
+
+    entry_id = str(data.get(SERVICE_FIELD_ENTRY_ID) or "").strip()
+    node_address = _parse_service_node_address(data.get(SERVICE_FIELD_NODE_ADDRESS))
+    domain_data = hass.data.get(DOMAIN, {})
+    if entry_id:
+        clients = list(domain_data.get(entry_id) or [])
+    else:
+        clients = [
+            client
+            for entry_clients in domain_data.values()
+            for client in (entry_clients or [])
+        ]
+    if node_address is not None:
+        clients = [
+            client
+            for client in clients
+            if int(getattr(client, "node_address", -1)) == node_address
+        ]
+    if len(clients) != 1:
+        raise HomeAssistantError(
+            "Select exactly one Amaran light with entry_id and/or node_address"
+        )
+    return clients[0]
+
+
+def _parse_service_node_address(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return _validate_service_node_address(value)
+    text = str(value).strip().lower()
+    base = 16 if text.startswith("0x") else 10
+    return _validate_service_node_address(int(text, base))
+
+
+def _validate_service_node_address(value: int) -> int:
+    if not 0 <= int(value) <= 0xFFFF:
+        raise ValueError("node_address must be a 16-bit mesh address")
+    return int(value)
 
 
 def _matching_mesh_context(

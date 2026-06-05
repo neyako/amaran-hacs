@@ -114,6 +114,7 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         self._assumed_state = True
         self._state_store: AmaranLightStateStore | None = None
         self._status_unsubscribe: Callable[[], None] | None = None
+        self._availability_unsubscribe: Callable[[], None] | None = None
         self._sync_attrs()
 
     async def async_added_to_hass(self) -> None:
@@ -142,9 +143,16 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         self._status_unsubscribe = self._client.subscribe_status(
             self._handle_status_update
         )
+        subscribe_availability = getattr(self._client, "subscribe_availability", None)
+        if callable(subscribe_availability):
+            self._availability_unsubscribe = subscribe_availability(
+                self._handle_availability_update
+            )
         async_on_remove = getattr(self, "async_on_remove", None)
         if callable(async_on_remove) and self._status_unsubscribe is not None:
             async_on_remove(self._status_unsubscribe)
+        if callable(async_on_remove) and self._availability_unsubscribe is not None:
+            async_on_remove(self._availability_unsubscribe)
         self._sync_attrs()
 
     @property
@@ -385,6 +393,11 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         )
         self._apply_state(state, assumed_state=False)
         self._schedule_state_save()
+        write_state = getattr(self, "async_write_ha_state", None)
+        if callable(write_state):
+            write_state()
+
+    def _handle_availability_update(self) -> None:
         write_state = getattr(self, "async_write_ha_state", None)
         if callable(write_state):
             write_state()

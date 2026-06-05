@@ -14,6 +14,7 @@ from .const import (
     CONF_ADDRESS,
     CONF_APP_KEY,
     CONF_BLE_MAC,
+    CONF_ENABLE_PRESENCE_CHECKING,
     CONF_FIXTURE_CATALOG,
     CONF_IMPORT_JSON,
     CONF_IMPORT_METHOD,
@@ -33,6 +34,7 @@ from .const import (
     CONF_TTL,
     CONF_TRANSPORT_MODE,
     DEFAULT_IV_INDEX,
+    DEFAULT_ENABLE_PRESENCE_CHECKING,
     DEFAULT_NAME,
     DEFAULT_NODE_ADDRESS,
     DEFAULT_SEQUENCE,
@@ -68,6 +70,20 @@ def _int_from_user(value: Any) -> int:
     if isinstance(value, int):
         return value
     return int(str(value).strip(), 0)
+
+
+def _bool_from_user(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("", "0", "false", "off", "no"):
+            return False
+        if normalized in ("1", "true", "on", "yes"):
+            return True
+    return bool(value)
 
 
 def _validate_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
@@ -188,7 +204,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle an Amaran Sidus config flow."""
 
     VERSION = 2
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     @staticmethod
     @callback
@@ -479,6 +495,13 @@ class AmaranSidusOptionsFlow(config_entries.OptionsFlow):
                         PROXY_SELECTION_MANUAL if proxy_mac else PROXY_SELECTION_AUTO
                     ),
                     CONF_PROXY_ADDRESS: proxy_mac,
+                    CONF_ENABLE_PRESENCE_CHECKING: _bool_from_user(
+                        user_input.get(
+                            CONF_ENABLE_PRESENCE_CHECKING,
+                            DEFAULT_ENABLE_PRESENCE_CHECKING,
+                        ),
+                        default=DEFAULT_ENABLE_PRESENCE_CHECKING,
+                    ),
                 }
             )
             return self.async_create_entry(
@@ -503,9 +526,23 @@ class AmaranSidusOptionsFlow(config_entries.OptionsFlow):
                 ),
             ),
         )
+        current_presence_checking = self._config_entry.options.get(
+            CONF_ENABLE_PRESENCE_CHECKING,
+            self._config_entry.data.get(
+                CONF_ENABLE_PRESENCE_CHECKING,
+                DEFAULT_ENABLE_PRESENCE_CHECKING,
+            ),
+        )
         return vol.Schema(
             {
                 vol.Optional(CONF_PROXY_MAC, default=current_proxy_mac): str,
+                vol.Optional(
+                    CONF_ENABLE_PRESENCE_CHECKING,
+                    default=_bool_from_user(
+                        current_presence_checking,
+                        default=DEFAULT_ENABLE_PRESENCE_CHECKING,
+                    ),
+                ): bool,
             }
         )
 

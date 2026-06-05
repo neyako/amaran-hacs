@@ -13,6 +13,7 @@ from custom_components.amaran.const import (
     TRANSPORT_STATE_PROXY_READY,
 )
 from custom_components.amaran.protocol import brightness_payload_percent, power_payload
+from custom_components.amaran.protocol import build_mesh_proxy_pdu, power_status_request_payload
 from custom_components.amaran.transport import (
     SidusBaseTransport,
     SidusPersistentTransport,
@@ -348,6 +349,39 @@ class SequenceReservationTest(unittest.TestCase):
         self.assertEqual(sequence_manager.sequence, 46)
 
 
+class NotificationCaptureTest(unittest.TestCase):
+    def test_decrypted_access_callback_receives_raw_sidus_payload(self) -> None:
+        messages: list[dict] = []
+        transport = SidusBaseTransport(
+            settings=_settings(
+                node_address=0x000B,
+                source_address=0x000F,
+                access_callback=messages.append,
+            ),
+            sequence_manager=FakeSequenceManager(),
+            save_sequence=_noop_save,
+            mode=TRANSPORT_MODE_TRANSIENT,
+        )
+        proxy_pdu = build_mesh_proxy_pdu(
+            net_key=NET_KEY,
+            app_key=APP_KEY,
+            src=0x000B,
+            dst=0x000F,
+            seq=42,
+            iv_index=0,
+            sidus_payload=power_status_request_payload(),
+            ttl=7,
+        )
+
+        transport._handle_proxy_out_notification(None, proxy_pdu)
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["source_address"], 0x000B)
+        self.assertEqual(messages[0]["destination_address"], 0x000F)
+        self.assertEqual(messages[0]["opcode"], 0x26)
+        self.assertEqual(messages[0]["sidus_payload"], power_status_request_payload())
+
+
 class AutoProxySelectionTest(unittest.TestCase):
     def test_auto_proxy_selection_chooses_first_reachable_candidate(self) -> None:
         transport = SidusBaseTransport(
@@ -396,6 +430,7 @@ def _settings(
     source_address: int = 0x000F,
     proxy_selection: str = "manual",
     proxy_candidates: tuple[str, ...] = (),
+    access_callback: object | None = None,
 ) -> SidusTransportSettings:
     return SidusTransportSettings(
         hass=object(),
@@ -410,4 +445,5 @@ def _settings(
         proxy_selection=proxy_selection,
         proxy_address="AA:BB:CC:DD:EE:FF",
         proxy_candidates=proxy_candidates,
+        access_callback=access_callback,
     )

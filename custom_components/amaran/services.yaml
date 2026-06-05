@@ -1,0 +1,26 @@
+request_power_status:
+  name: Request power status
+  description: Debug-only probe that sends Sidus command 0x0A and logs decrypted Mesh Proxy Data Out responses.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Config entry ID for the selected Amaran light.
+      required: false
+      selector:
+        text:
+    node_address:
+      name: Node address
+      description: Mesh node address for the selected light, such as 0x000b.
+      required: false
+      selector:
+        text:
+    capture_seconds:
+      name: Capture seconds
+      description: Seconds to keep logging decrypted responses after the request.
+      required: false
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: seconds

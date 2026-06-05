@@ -78,7 +78,8 @@
         "title": "Advanced connection settings",
         "description": "Leave blank to use the first reachable known light. Set a known-good BLE MAC to prefer it.",
         "data": {
-          "proxy_mac": "Known-good BLE connection MAC (optional)"
+          "proxy_mac": "Known-good BLE connection MAC (optional)",
+          "enable_presence_checking": "Mark unavailable when BLE advertisements stop"
         }
       }
     }

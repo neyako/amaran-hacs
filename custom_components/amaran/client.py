@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from datetime import UTC, datetime
 import hashlib
 import logging
 import time
@@ -23,6 +24,7 @@ from .const import (
     CONF_BATTERY_PERCENTAGE,
     CONF_BLE_MAC,
     CONF_DEVICE_UUID,
+    CONF_ENABLE_PRESENCE_CHECKING,
     CONF_IV_INDEX,
     CONF_MODEL,
     CONF_NAME,
@@ -36,8 +38,10 @@ from .const import (
     CONF_SUPPORTED_COLOR_MODES,
     CONF_TTL,
     DEFAULT_IV_INDEX,
+    DEFAULT_ENABLE_PRESENCE_CHECKING,
     DEFAULT_NAME,
     DEFAULT_NODE_ADDRESS,
+    DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS,
     DEFAULT_SEQUENCE,
     DEFAULT_SOURCE_ADDRESS,
     DEFAULT_TTL,
@@ -56,6 +60,7 @@ from .commands import (
     brightness_payloads,
     cct_payloads,
     hsi_payloads,
+    power_status_request_payloads,
     power_off_payloads,
     power_on_payloads,
 )
@@ -186,6 +191,7 @@ class SidusMeshNetwork:
             sequence_key, SidusSequenceManager(hass, sequence_key)
         )
         self._status_callbacks: dict[int, list[Any]] = {}
+        self._access_callbacks: list[Any] = []
         settings = SidusTransportSettings(
             hass=hass,
             address=proxy_address,
@@ -200,6 +206,7 @@ class SidusMeshNetwork:
             proxy_address=self._proxy_mac,
             proxy_candidates=self._proxy_candidates,
             status_callback=self._handle_status_update,
+            access_callback=self._handle_access_update,
         )
         self._transport = SidusPersistentTransport(
             settings=settings,
@@ -336,10 +343,25 @@ class SidusMeshNetwork:
 
         return _unsubscribe
 
+    def subscribe_access(self, callback: Any) -> Any:
+        """Subscribe to decrypted access messages on this mesh."""
+
+        self._access_callbacks.append(callback)
+
+        def _unsubscribe() -> None:
+            if callback in self._access_callbacks:
+                self._access_callbacks.remove(callback)
+
+        return _unsubscribe
+
     def _handle_status_update(self, status: dict[str, Any]) -> None:
         source_address = int(status.get("source_address", 0))
         for callback in tuple(self._status_callbacks.get(source_address, ())):
             callback(status)
+
+    def _handle_access_update(self, message: dict[str, Any]) -> None:
+        for callback in tuple(self._access_callbacks):
+            callback(message)
 
     async def async_setup(self) -> None:
         """Load sequence state and start shared transport worker once."""
@@ -488,6 +510,15 @@ class AmaranSidusClient:
         self._last_advertisement_seen: float | None = None
         self._last_advertisement_address: str | None = None
         self._last_advertisement_rssi: int | None = None
+        self._last_command_failure_at: float | None = None
+        self._presence_checking_enabled = _entry_bool(
+            entry,
+            CONF_ENABLE_PRESENCE_CHECKING,
+            DEFAULT_ENABLE_PRESENCE_CHECKING,
+        )
+        self._presence_unavailable_after = DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS
+        self._availability_callbacks: list[Any] = []
+        self._presence_expire_unsubscribe: Any | None = None
         self._last_command: dict[str, Any] | None = None
         self._last_physical_validation: dict[str, Any] | None = None
         self._desired_power: bool | None = None
@@ -498,6 +529,9 @@ class AmaranSidusClient:
         self._battery_percentage: int | None = _optional_percentage(
             self.data.get(CONF_BATTERY_PERCENTAGE)
         )
+        self._battery_power_info: dict[str, Any] | None = None
+        self._battery_callbacks: list[Any] = []
+        self._battery_unsubscribe: Any | None = None
 
     @property
     def node_address(self) -> int:
@@ -554,16 +588,37 @@ class AmaranSidusClient:
         return self._mesh_network.last_proxy_advertisement_seen
 
     @property
-    def fixture_reachable(self) -> bool:
-        """Return v1 reachability based on shared mesh transport readiness."""
+    def presence_checking_enabled(self) -> bool:
+        """Return true when light-level BLE advertisement checks are enforced."""
 
-        return self._mesh_network.is_ready
+        return self._presence_checking_enabled
+
+    @property
+    def presence_unavailable_after(self) -> float:
+        """Return seconds without a light advertisement before unavailable."""
+
+        return self._presence_unavailable_after
+
+    @property
+    def fixture_reachable(self) -> bool:
+        """Return current per-light reachability."""
+
+        return self.is_available
 
     @property
     def fixture_stale_seconds(self) -> float | None:
-        """Return no fixture-level stale age until readback exists."""
+        """Return seconds past the advertisement freshness window."""
 
-        return None
+        if not self._presence_checking_enabled or self._last_advertisement_seen is None:
+            return None
+        stale_seconds = (
+            time.time()
+            - self._last_advertisement_seen
+            - self._presence_unavailable_after
+        )
+        if stale_seconds <= 0:
+            return None
+        return round(stale_seconds, 1)
 
     @property
     def last_command(self) -> dict[str, Any] | None:
@@ -606,6 +661,12 @@ class AmaranSidusClient:
         """Return last known battery percentage, if a real value exists."""
 
         return self._battery_percentage
+
+    @property
+    def battery_power_info(self) -> dict[str, Any] | None:
+        """Return last decoded real power/battery packet details."""
+
+        return self._battery_power_info
 
     @property
     def supports_hs(self) -> bool:
@@ -651,9 +712,9 @@ class AmaranSidusClient:
 
     @property
     def is_available(self) -> bool:
-        """Return true when commands can be sent without a cold connect."""
+        """Return true when shared transport and this light are reachable."""
 
-        return self._mesh_network.is_ready
+        return self._mesh_network.is_ready and self._fixture_presence_ok()
 
     @property
     def last_connect_time(self) -> float | None:
@@ -709,18 +770,49 @@ class AmaranSidusClient:
 
         return self._mesh_network.subscribe_status(self._node_address, callback)
 
+    def subscribe_access(self, callback: Any) -> Any:
+        """Subscribe to decrypted access updates for this mesh."""
+
+        return self._mesh_network.subscribe_access(callback)
+
+    def subscribe_availability(self, callback: Any) -> Any:
+        """Subscribe to light-level availability changes."""
+
+        self._availability_callbacks.append(callback)
+
+        def _unsubscribe() -> None:
+            if callback in self._availability_callbacks:
+                self._availability_callbacks.remove(callback)
+
+        return _unsubscribe
+
+    def subscribe_battery(self, callback: Any) -> Any:
+        """Subscribe to decoded battery updates for this light."""
+
+        self._battery_callbacks.append(callback)
+
+        def _unsubscribe() -> None:
+            if callback in self._battery_callbacks:
+                self._battery_callbacks.remove(callback)
+
+        return _unsubscribe
+
     def mark_advertisement_seen(self, service_info: Any) -> None:
         """Record fixture/proxy advertisement freshness."""
 
         address = str(getattr(service_info, "address", "") or "").strip()
         if not address:
             return
-        seen_at = time.time()
+        was_available = self.is_available
+        seen_at = _advertisement_seen_at(service_info)
         if _address_matches(address, self._fixture_advertisement_addresses()):
             self._last_advertisement_seen = seen_at
             self._last_advertisement_address = address
             rssi = getattr(service_info, "rssi", None)
             self._last_advertisement_rssi = int(rssi) if rssi is not None else None
+            self._schedule_presence_expiry()
+            if self.is_available != was_available:
+                self._notify_availability_callbacks()
 
     def _fixture_advertisement_addresses(self) -> tuple[str, ...]:
         return tuple(
@@ -739,7 +831,7 @@ class AmaranSidusClient:
         if not callable(last_service_info):
             return
         for address in self._fixture_advertisement_addresses():
-            service_info = last_service_info(self.hass, address, connectable=True)
+            service_info = last_service_info(self.hass, address, connectable=False)
             if service_info is not None:
                 self.mark_advertisement_seen(service_info)
                 return
@@ -749,6 +841,10 @@ class AmaranSidusClient:
 
         self._seed_last_advertisement_from_cache()
         await self._mesh_network.async_setup()
+        if self.battery_capable and self._battery_unsubscribe is None:
+            self._battery_unsubscribe = self.subscribe_access(
+                self._handle_power_info_update
+            )
 
     def async_start_warmup(self, reason: str) -> None:
         """Start or wake background warm-up without blocking HA startup."""
@@ -784,7 +880,67 @@ class AmaranSidusClient:
     async def async_disconnect(self) -> None:
         """Close transport resources."""
 
+        self._cancel_presence_expiry()
+        if self._battery_unsubscribe is not None:
+            self._battery_unsubscribe()
+            self._battery_unsubscribe = None
         await self._mesh_network.async_close()
+
+    async def async_request_power_status(self, *, capture_seconds: float = 10.0) -> None:
+        """Send the debug Sidus power/battery status request and log responses."""
+
+        capture_seconds = max(0.0, min(60.0, float(capture_seconds)))
+        payloads = power_status_request_payloads()
+        requested_at = _utc_timestamp(time.time())
+        _LOGGER.warning(
+            "Sidus power status probe tx ts=%s light=%s light_node=0x%04x "
+            "src=0x%04x dst=0x%04x opcode=0x%02x raw_payload=%s "
+            "capture_seconds=%.1f",
+            requested_at,
+            self.name,
+            self._node_address,
+            self.source_address,
+            self._node_address,
+            payloads[-1][9],
+            payloads[-1].hex(" "),
+            capture_seconds,
+        )
+
+        def _log_access(message: dict[str, Any]) -> None:
+            source_address = int(message.get("source_address", 0))
+            destination_address = int(message.get("destination_address", 0))
+            opcode = message.get("opcode")
+            access_payload = message.get("access_payload") or b""
+            sidus_payload = message.get("sidus_payload") or b""
+            sidus_command = sidus_payload[9] if len(sidus_payload) >= 10 else None
+            power_info = message.get("sidus_power_info")
+            _LOGGER.warning(
+                "Sidus power status probe rx ts=%s light=%s light_node=0x%04x "
+                "src=0x%04x dst=0x%04x seq=%s opcode=%s sidus_command=%s "
+                "raw_access=%s raw_payload=%s decoded_mode=%s "
+                "decoded_battery=%s decoded_time=%s",
+                _utc_timestamp(float(message.get("received_at", time.time()))),
+                self.name,
+                self._node_address,
+                source_address,
+                destination_address,
+                message.get("sequence"),
+                _hex_byte(opcode),
+                _hex_byte(sidus_command),
+                bytes(access_payload).hex(" "),
+                bytes(sidus_payload).hex(" "),
+                getattr(power_info, "power_supply_mode", None),
+                getattr(power_info, "battery_percentage", None),
+                getattr(power_info, "battery_time_minutes", None),
+            )
+
+        unsubscribe = self.subscribe_access(_log_access)
+        try:
+            await self.async_send_siduses(payloads)
+            if capture_seconds:
+                await asyncio.sleep(capture_seconds)
+        finally:
+            unsubscribe()
 
     async def async_turn_on(self, extra_payloads: list[bytes] | None = None) -> None:
         """Send the Sidus power-on payload, followed by optional payloads."""
@@ -952,6 +1108,7 @@ class AmaranSidusClient:
                 first_payload_delay=first_payload_delay,
             )
         except Exception as err:
+            self._mark_command_failure(err)
             self._last_command.update(
                 {
                     "completed_at": time.time(),
@@ -970,12 +1127,138 @@ class AmaranSidusClient:
             }
         )
 
+    def _handle_power_info_update(self, message: dict[str, Any]) -> None:
+        power_info = message.get("sidus_power_info")
+        if power_info is None:
+            return
+        if int(getattr(power_info, "source_address", -1)) != self._node_address:
+            return
+        if not self.battery_capable:
+            return
+
+        percentage = int(power_info.battery_percentage)
+        mode = str(power_info.power_supply_mode)
+        if mode == "ac" and percentage == 0:
+            return
+
+        self._battery_percentage = max(0, min(100, percentage))
+        self._battery_power_info = {
+            "power_supply_mode": mode,
+            "battery_time_minutes": int(power_info.battery_time_minutes),
+            "battery_percentage": self._battery_percentage,
+            "battery_voltage": int(power_info.battery_voltage),
+            "external_voltage": int(power_info.external_voltage),
+            "command_type": int(power_info.command_type),
+            "operation_type": int(power_info.operation_type),
+            "source_address": int(power_info.source_address),
+            "destination_address": int(power_info.destination_address),
+            "sequence": int(power_info.sequence),
+            "received_at": float(message.get("received_at", time.time())),
+        }
+        _LOGGER.debug(
+            "Sidus battery update light=%s node=0x%04x mode=%s battery=%s "
+            "time_minutes=%s",
+            self.name,
+            self._node_address,
+            mode,
+            self._battery_percentage,
+            power_info.battery_time_minutes,
+        )
+        self._notify_battery_callbacks()
+
+    def _fixture_presence_ok(self) -> bool:
+        if not self._presence_checking_enabled:
+            return True
+        if self._last_advertisement_seen is None:
+            return False
+        if (
+            self._last_command_failure_at is not None
+            and self._last_advertisement_seen <= self._last_command_failure_at
+        ):
+            return False
+        return (
+            time.time() - self._last_advertisement_seen
+        ) <= self._presence_unavailable_after
+
+    def _mark_command_failure(self, err: Exception) -> None:
+        was_available = self.is_available
+        self._last_command_failure_at = time.time()
+        _LOGGER.debug(
+            "Sidus light marked unavailable after command failure light=%s error=%r",
+            self.name,
+            err,
+        )
+        if self.is_available != was_available:
+            self._notify_availability_callbacks()
+
+    def _schedule_presence_expiry(self) -> None:
+        self._cancel_presence_expiry()
+        if (
+            not self._presence_checking_enabled
+            or self._last_advertisement_seen is None
+        ):
+            return
+        try:
+            from homeassistant.helpers.event import async_call_later
+        except Exception:
+            return
+        delay = max(
+            0.0,
+            self._presence_unavailable_after
+            - (time.time() - self._last_advertisement_seen),
+        )
+        if delay <= 0:
+            return
+
+        def _expire(_now: Any) -> None:
+            self._presence_expire_unsubscribe = None
+            self._seed_last_advertisement_from_cache()
+            self._notify_availability_callbacks()
+
+        self._presence_expire_unsubscribe = async_call_later(
+            self.hass,
+            delay,
+            _expire,
+        )
+
+    def _cancel_presence_expiry(self) -> None:
+        unsubscribe = self._presence_expire_unsubscribe
+        self._presence_expire_unsubscribe = None
+        if callable(unsubscribe):
+            unsubscribe()
+
+    def _notify_availability_callbacks(self) -> None:
+        loop = getattr(getattr(self, "hass", None), "loop", None)
+        for callback in tuple(self._availability_callbacks):
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(callback)
+            else:
+                callback()
+
+    def _notify_battery_callbacks(self) -> None:
+        loop = getattr(getattr(self, "hass", None), "loop", None)
+        for callback in tuple(self._battery_callbacks):
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(callback)
+            else:
+                callback()
+
 
 def _sequence_storage_key(net_key: bytes, source_address: int, iv_index: int) -> str:
     digest = hashlib.sha1(
         net_key + source_address.to_bytes(2, "big") + iv_index.to_bytes(4, "big")
     ).hexdigest()
     return f"sequence_{digest[:16]}"
+
+
+def _advertisement_seen_at(service_info: Any) -> float:
+    """Return the advertisement's wall-clock timestamp when HA provides one."""
+
+    advertisement_monotonic = getattr(service_info, "time", None)
+    if not isinstance(advertisement_monotonic, (int, float)):
+        return time.time()
+    age = max(0.0, time.monotonic() - float(advertisement_monotonic))
+    return time.time() - age
 
 
 def mesh_network_key(entry: ConfigEntry, fixture: dict[str, Any]) -> str:
@@ -1062,6 +1345,29 @@ def _entry_proxy_mac(entry: ConfigEntry, data: dict[str, Any]) -> str:
     return ""
 
 
+def _entry_bool(entry: ConfigEntry, field: str, default: bool) -> bool:
+    """Return one boolean option with data fallback."""
+
+    for source in (entry.options, entry.data):
+        if field in source:
+            return _bool_value(source[field], default=default)
+    return default
+
+
+def _bool_value(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("", "0", "false", "off", "no"):
+            return False
+        if normalized in ("1", "true", "on", "yes"):
+            return True
+    return bool(value)
+
+
 def _configured_proxy_candidates(entries: list[ConfigEntry]) -> list[str]:
     """Return persisted proxy candidate addresses across matching entries."""
 
@@ -1110,6 +1416,16 @@ def _fixture_identity(fixture: dict[str, Any]) -> str:
 def _address_matches(address: str, candidates: tuple[str, ...]) -> bool:
     normalized = address.lower()
     return any(normalized == candidate.lower() for candidate in candidates)
+
+
+def _utc_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, UTC).isoformat(timespec="milliseconds")
+
+
+def _hex_byte(value: Any) -> str:
+    if value is None:
+        return "none"
+    return f"0x{int(value) & 0xFF:02x}"
 
 
 def _clamp_brightness(brightness: int) -> int:

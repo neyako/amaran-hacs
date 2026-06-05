@@ -51,6 +51,7 @@ from custom_components.amaran.const import (
     CONF_ADDRESS,
     CONF_APP_KEY,
     CONF_BLE_MAC,
+    CONF_ENABLE_PRESENCE_CHECKING,
     CONF_FIXTURES,
     CONF_NAME,
     CONF_NET_KEY,
@@ -125,9 +126,36 @@ class SharedMeshTransportModelTest(unittest.TestCase):
         self.assertEqual(mesh.proxy_address, manual_proxy)
         self.assertEqual(mesh.proxy_candidates[0], manual_proxy)
 
-    def test_shared_proxy_ready_makes_all_four_fixtures_available(self) -> None:
+    def test_shared_proxy_ready_requires_each_fixture_advertisement(self) -> None:
         fixtures = _fixtures()
         entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
+        mesh = SidusMeshNetwork(types.SimpleNamespace(data={}), entry, fixtures)
+        mesh._transport = FakeMeshTransport(ready=True)
+        clients = [
+            AmaranSidusClient(
+                types.SimpleNamespace(data={}), entry, fixture, mesh_network=mesh
+            )
+            for fixture in fixtures
+        ]
+
+        self.assertTrue(mesh.is_ready)
+        self.assertFalse(any(client.is_available for client in clients))
+
+        for client, fixture in zip(clients, fixtures, strict=True):
+            client.mark_advertisement_seen(
+                types.SimpleNamespace(address=fixture[CONF_BLE_MAC], rssi=-61)
+            )
+
+        self.assertTrue(all(client.is_available for client in clients))
+
+    def test_presence_checking_can_be_disabled_for_transport_only_availability(
+        self,
+    ) -> None:
+        fixtures = _fixtures()
+        entry = FakeEntry(
+            {CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F},
+            {CONF_ENABLE_PRESENCE_CHECKING: False},
+        )
         mesh = SidusMeshNetwork(types.SimpleNamespace(data={}), entry, fixtures)
         mesh._transport = FakeMeshTransport(ready=True)
         clients = [
@@ -243,7 +271,10 @@ class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         fixtures = _fixtures()
         hass = types.SimpleNamespace(data={})
-        entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
+        entry = FakeEntry(
+            {CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F},
+            {CONF_ENABLE_PRESENCE_CHECKING: False},
+        )
         mesh = SidusMeshNetwork(hass, entry, fixtures)
         transport = FakeMeshTransport()
         mesh._transport = transport

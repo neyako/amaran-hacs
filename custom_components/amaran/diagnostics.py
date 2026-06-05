@@ -64,6 +64,8 @@ def _client_diagnostics(client: AmaranSidusClient) -> dict[str, Any]:
         "connection_address": client.proxy_address,
         "light_reachable": client.fixture_reachable,
         "light_stale_seconds": client.fixture_stale_seconds,
+        "light_presence_checking": client.presence_checking_enabled,
+        "light_unavailable_after_seconds": client.presence_unavailable_after,
         "last_advertisement_seen": client.last_advertisement_seen,
         "last_advertisement_address": client.last_advertisement_address,
         "last_advertisement_rssi": client.last_advertisement_rssi,

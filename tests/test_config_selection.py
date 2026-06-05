@@ -135,6 +135,31 @@ class DiscoveryConfigTest(unittest.TestCase):
 
 
 class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_single_ace_entry_backfills_battery_capability(self) -> None:
+        entry = SimpleNamespace(
+            entry_id="ace",
+            data={
+                CONF_APP_KEY: APP_KEY,
+                CONF_BLE_MAC: "AA:BB:CC:DD:EE:01",
+                CONF_NAME: "Amaran Ace 25C",
+                CONF_NET_KEY: NET_KEY,
+                CONF_NODE_ADDRESS: 0x000B,
+            },
+            options={},
+            title="Amaran Ace 25C",
+            unique_id="aa_bb_cc_dd_ee_01",
+            version=2,
+            minor_version=1,
+        )
+        manager = FakeConfigEntries([entry])
+        hass = SimpleNamespace(config_entries=manager)
+
+        migrated = await async_migrate_entry(hass, entry)
+
+        self.assertTrue(migrated)
+        self.assertTrue(entry.data[CONF_BATTERY_CAPABLE])
+        self.assertEqual(entry.minor_version, 2)
+
     async def test_grouped_entry_splits_into_fixture_entries(self) -> None:
         ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
         pano = _fixture("Pano", "Pano 60c", "AA:BB:CC:DD:EE:02", 0x000C)
@@ -166,7 +191,7 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.title, "Ace")
         self.assertEqual(entry.unique_id, fixture_unique_id(ace))
         self.assertEqual(entry.version, 2)
-        self.assertEqual(entry.minor_version, 1)
+        self.assertEqual(entry.minor_version, 2)
         self.assertEqual(entry.data[CONF_PROXY_ADDRESS], "")
         self.assertNotIn(CONF_FIXTURE_CATALOG, entry.data)
         self.assertNotIn(CONF_FIXTURES, entry.data)

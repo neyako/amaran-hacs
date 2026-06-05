@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 import sys
+import time
 import types
 from typing import Any
 import unittest
@@ -13,8 +14,12 @@ from custom_components.amaran.const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    CONF_BATTERY_CAPABLE,
     CONF_BLE_MAC,
     CONF_NODE_ADDRESS,
+    DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS,
+    DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
+    DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     TRANSPORT_STATE_DISCONNECTED,
     TRANSPORT_STATE_PROXY_READY,
@@ -118,6 +123,7 @@ class FakeClient:
         self.transport_state = TRANSPORT_STATE_PROXY_READY
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.status_callback: Any = None
+        self.availability_callback: Any = None
 
     def set_cached_state(self, **kwargs: Any) -> None:
         return None
@@ -127,6 +133,14 @@ class FakeClient:
 
         def _unsubscribe() -> None:
             self.status_callback = None
+
+        return _unsubscribe
+
+    def subscribe_availability(self, callback: Any) -> Any:
+        self.availability_callback = callback
+
+        def _unsubscribe() -> None:
+            self.availability_callback = None
 
         return _unsubscribe
 
@@ -340,43 +354,282 @@ class LightIconTest(unittest.TestCase):
 
 
 class ClientAvailabilityTest(unittest.TestCase):
+    def test_presence_scan_repeats_inside_freshness_window(self) -> None:
+        self.assertGreaterEqual(DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS, 60.0)
+        self.assertLess(
+            DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS
+            + DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
+            DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS,
+        )
+
     def test_proxy_ready_without_connection_reports_unavailable(self) -> None:
-        client = object.__new__(AmaranSidusClient)
-        client._mesh_network = FakeMeshNetwork(
-            TRANSPORT_STATE_PROXY_READY, connected=False
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=False,
+            last_seen=time.time(),
         )
 
         self.assertEqual(client.transport_state, TRANSPORT_STATE_DISCONNECTED)
         self.assertFalse(client.is_available)
 
-    def test_proxy_ready_with_connection_reports_available(self) -> None:
-        client = object.__new__(AmaranSidusClient)
-        client._mesh_network = FakeMeshNetwork(
-            TRANSPORT_STATE_PROXY_READY, connected=True
+    def test_proxy_ready_with_recent_advertisement_reports_available(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=time.time(),
         )
 
         self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
         self.assertTrue(client.is_available)
 
-    def test_idle_fixture_does_not_become_stale_after_five_minutes(self) -> None:
-        client = object.__new__(AmaranSidusClient)
-        client._mesh_network = FakeMeshNetwork(
-            TRANSPORT_STATE_PROXY_READY, connected=True
+    def test_proxy_ready_without_light_advertisement_reports_unavailable(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
         )
-        client._last_advertisement_seen = None
 
         self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
+        self.assertFalse(client.is_available)
+        self.assertIsNone(client.fixture_stale_seconds)
+
+    def test_cached_stale_advertisement_does_not_become_fresh(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+        )
+
+        client.mark_advertisement_seen(
+            types.SimpleNamespace(
+                address="AA:BB:CC:DD:EE:FF",
+                rssi=-42,
+                time=(
+                    time.monotonic()
+                    - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS
+                    - 5.0
+                ),
+            )
+        )
+
+        self.assertFalse(client.is_available)
+        self.assertAlmostEqual(client.fixture_stale_seconds, 5.0, delta=1.0)
+
+    def test_startup_cache_seed_uses_all_advertisements(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+        )
+        client.hass = object()
+        calls: list[tuple[str, bool]] = []
+        service_info = types.SimpleNamespace(
+            address="AA:BB:CC:DD:EE:FF",
+            rssi=-42,
+            time=time.monotonic() - 5.0,
+        )
+        bluetooth = types.ModuleType("homeassistant.components.bluetooth")
+
+        def _last_service_info(
+            _hass: object, address: str, *, connectable: bool
+        ) -> object:
+            calls.append((address, connectable))
+            return service_info
+
+        bluetooth.async_last_service_info = _last_service_info
+        components = sys.modules["homeassistant.components"]
+        previous = getattr(components, "bluetooth", None)
+        sys.modules["homeassistant.components.bluetooth"] = bluetooth
+        components.bluetooth = bluetooth
+        try:
+            client._seed_last_advertisement_from_cache()
+        finally:
+            if previous is None:
+                delattr(components, "bluetooth")
+            else:
+                components.bluetooth = previous
+            sys.modules.pop("homeassistant.components.bluetooth", None)
+
+        self.assertEqual(calls, [("AA:BB:CC:DD:EE:FF", False)])
+        self.assertTrue(client.is_available)
+
+    def test_presence_expiry_rechecks_ha_cache_before_notifying(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=time.time(),
+        )
+        client.hass = object()
+        scheduled: list[Any] = []
+        cache_checks = 0
+        availability_updates = 0
+        event = types.ModuleType("homeassistant.helpers.event")
+
+        def _async_call_later(
+            _hass: object, _delay: float, callback: Any
+        ) -> Any:
+            scheduled.append(callback)
+            return lambda: None
+
+        def _seed_from_cache() -> None:
+            nonlocal cache_checks
+            cache_checks += 1
+            client._last_advertisement_seen = time.time()
+
+        def _availability_update() -> None:
+            nonlocal availability_updates
+            availability_updates += 1
+
+        event.async_call_later = _async_call_later
+        client._seed_last_advertisement_from_cache = _seed_from_cache
+        client.subscribe_availability(_availability_update)
+        sys.modules["homeassistant.helpers.event"] = event
+        try:
+            client._schedule_presence_expiry()
+            scheduled[0](None)
+        finally:
+            sys.modules.pop("homeassistant.helpers.event", None)
+
+        self.assertEqual(cache_checks, 1)
+        self.assertEqual(availability_updates, 1)
+        self.assertTrue(client.is_available)
+
+    def test_stale_presence_does_not_schedule_immediate_expiry_loop(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=(
+                time.time() - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS - 1.0
+            ),
+        )
+        client.hass = object()
+        scheduled: list[Any] = []
+        event = types.ModuleType("homeassistant.helpers.event")
+        event.async_call_later = lambda *_args, **_kwargs: scheduled.append(True)
+        sys.modules["homeassistant.helpers.event"] = event
+        try:
+            client._schedule_presence_expiry()
+        finally:
+            sys.modules.pop("homeassistant.helpers.event", None)
+
+        self.assertEqual(scheduled, [])
+
+    def test_stale_light_advertisement_reports_unavailable(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=(
+                time.time() - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS - 5.0
+            ),
+        )
+
+        self.assertFalse(client.is_available)
+        self.assertAlmostEqual(client.fixture_stale_seconds, 5.0, delta=1.0)
+
+    def test_presence_checking_disabled_uses_transport_only(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            presence_checking=False,
+        )
+
         self.assertTrue(client.is_available)
         self.assertIsNone(client.fixture_stale_seconds)
 
+    def test_command_failure_marks_unavailable_until_advertisement_returns(
+        self,
+    ) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=time.time(),
+        )
+
+        self.assertTrue(client.is_available)
+
+        client._mark_command_failure(RuntimeError("write failed"))
+
+        self.assertFalse(client.is_available)
+
+        client.mark_advertisement_seen(
+            types.SimpleNamespace(address="AA:BB:CC:DD:EE:FF", rssi=-42)
+        )
+
+        self.assertTrue(client.is_available)
+
     def test_reconnecting_reports_unavailable(self) -> None:
-        client = object.__new__(AmaranSidusClient)
-        client._mesh_network = FakeMeshNetwork(
-            TRANSPORT_STATE_RECONNECTING, connected=True
+        client = _client_for_availability(
+            TRANSPORT_STATE_RECONNECTING,
+            connected=True,
+            last_seen=time.time(),
         )
 
         self.assertEqual(client.transport_state, TRANSPORT_STATE_RECONNECTING)
         self.assertFalse(client.is_available)
+
+    def test_decoded_power_info_updates_battery_capable_client(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=time.time(),
+            battery_capable=True,
+        )
+        callback_count = 0
+
+        def _callback() -> None:
+            nonlocal callback_count
+            callback_count += 1
+
+        client.subscribe_battery(_callback)
+
+        client._handle_power_info_update(
+            {
+                "sidus_power_info": types.SimpleNamespace(
+                    power_supply_mode="battery",
+                    battery_time_minutes=34,
+                    battery_percentage=53,
+                    battery_voltage=7420,
+                    external_voltage=0,
+                    command_type=0x0A,
+                    operation_type=0,
+                    source_address=0x000B,
+                    destination_address=0x000F,
+                    sequence=42,
+                ),
+                "received_at": 123.0,
+            }
+        )
+
+        self.assertEqual(client.battery_percentage, 53)
+        self.assertEqual(client.battery_power_info["power_supply_mode"], "battery")
+        self.assertEqual(client.battery_power_info["battery_time_minutes"], 34)
+        self.assertEqual(callback_count, 1)
+
+    def test_ac_zero_power_info_does_not_create_fake_battery_value(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            last_seen=time.time(),
+            battery_capable=True,
+        )
+
+        client._handle_power_info_update(
+            {
+                "sidus_power_info": types.SimpleNamespace(
+                    power_supply_mode="ac",
+                    battery_time_minutes=0,
+                    battery_percentage=0,
+                    battery_voltage=0,
+                    external_voltage=24000,
+                    command_type=0x0A,
+                    operation_type=0,
+                    source_address=0x000B,
+                    destination_address=0x000F,
+                    sequence=42,
+                ),
+                "received_at": 123.0,
+            }
+        )
+
+        self.assertIsNone(client.battery_percentage)
+        self.assertIsNone(client.battery_power_info)
 
 
 class FakeMeshNetwork:
@@ -388,6 +641,37 @@ class FakeMeshNetwork:
             else TRANSPORT_STATE_DISCONNECTED
         )
         self.is_ready = self.transport_state == TRANSPORT_STATE_PROXY_READY
+
+
+def _client_for_availability(
+    state: str,
+    *,
+    connected: bool,
+    last_seen: float | None = None,
+    presence_checking: bool = True,
+    battery_capable: bool = False,
+) -> AmaranSidusClient:
+    client = object.__new__(AmaranSidusClient)
+    client.name = "Fake Ace"
+    client.address = "AA:BB:CC:DD:EE:FF"
+    client.ble_mac = "AA:BB:CC:DD:EE:FF"
+    client.data = {CONF_BATTERY_CAPABLE: battery_capable}
+    client._node_address = 0x000B
+    client._mesh_network = FakeMeshNetwork(state, connected=connected)
+    client._last_advertisement_seen = last_seen
+    client._last_advertisement_address = (
+        "AA:BB:CC:DD:EE:FF" if last_seen is not None else None
+    )
+    client._last_advertisement_rssi = -50 if last_seen is not None else None
+    client._last_command_failure_at = None
+    client._presence_checking_enabled = presence_checking
+    client._presence_unavailable_after = DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS
+    client._availability_callbacks = []
+    client._presence_expire_unsubscribe = None
+    client._battery_percentage = None
+    client._battery_power_info = None
+    client._battery_callbacks = []
+    return client
 
 
 class FakeStore:

@@ -7,6 +7,7 @@ from .protocol import (
     cct_payload_ha,
     hsi_payload_ha,
     power_payload,
+    power_status_request_payload,
     status_request_payload,
 )
 
@@ -80,3 +81,9 @@ def status_request_payloads() -> list[bytes]:
     """Build a harmless status request payload."""
 
     return [status_request_payload()]
+
+
+def power_status_request_payloads() -> list[bytes]:
+    """Build the Sidus power/battery status request payload."""
+
+    return [power_status_request_payload()]

@@ -44,6 +44,7 @@ class SidusTransportSettings:
     proxy_address: str = ""
     proxy_candidates: tuple[str, ...] = ()
     status_callback: Callable[[dict[str, Any]], None] | None = None
+    access_callback: Callable[[dict[str, Any]], None] | None = None
 
 
 @dataclass
@@ -435,6 +436,7 @@ class SidusBaseTransport:
                 raw.hex(" "),
             )
             return
+        self._notify_access_callback(decoded)
         status = decoded.sidus_status
         if status is None:
             _LOGGER.debug(
@@ -470,6 +472,24 @@ class SidusBaseTransport:
         )
         if self._settings.status_callback is not None:
             self._settings.status_callback(payload)
+
+    def _notify_access_callback(self, decoded: Any) -> None:
+        callback = self._settings.access_callback
+        if callback is None:
+            return
+        access = decoded.access_payload
+        sidus_payload = decoded.sidus_payload
+        payload = {
+            "source_address": decoded.source_address,
+            "destination_address": decoded.destination_address,
+            "sequence": decoded.sequence,
+            "opcode": access[0] if access else None,
+            "access_payload": access,
+            "sidus_payload": sidus_payload,
+            "sidus_power_info": decoded.sidus_power_info,
+            "received_at": time.time(),
+        }
+        callback(payload)
 
     async def _write_reserved(
         self,

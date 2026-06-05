@@ -44,6 +44,22 @@ class SidusStatus:
 
 
 @dataclass(frozen=True)
+class SidusPowerInfo:
+    """Decoded Sidus power/battery report."""
+
+    power_supply_mode: str
+    battery_time_minutes: int
+    battery_percentage: int
+    battery_voltage: int
+    external_voltage: int
+    command_type: int
+    operation_type: int
+    source_address: int
+    destination_address: int
+    sequence: int
+
+
+@dataclass(frozen=True)
 class DecodedAccessMessage:
     """Decoded unsegmented Mesh Proxy access payload."""
 
@@ -53,6 +69,7 @@ class DecodedAccessMessage:
     access_payload: bytes
     sidus_payload: bytes | None
     sidus_status: SidusStatus | None
+    sidus_power_info: SidusPowerInfo | None
 
 
 def normalize_hex_key(value: str, *, field: str = "key") -> bytes:
@@ -217,6 +234,14 @@ def status_request_payload() -> bytes:
     return _finalize_sidus(payload)
 
 
+def power_status_request_payload() -> bytes:
+    """Build the Sidus power/battery status request payload, cmd_type 0x0a."""
+
+    payload = bytearray(10)
+    payload[9] = 0x0A
+    return _finalize_sidus(payload)
+
+
 def decode_sidus_status_payload(
     sidus_payload: bytes,
     *,
@@ -267,6 +292,45 @@ def decode_sidus_status_payload(
             sequence=sequence,
         )
     return None
+
+
+def decode_sidus_power_info_payload(
+    sidus_payload: bytes,
+    *,
+    source_address: int,
+    destination_address: int,
+    sequence: int,
+) -> SidusPowerInfo | None:
+    """Decode the SDK-confirmed Sidus 0x0a power/battery report payload."""
+
+    if len(sidus_payload) < 10:
+        return None
+    payload = sidus_payload[:10]
+    if payload[0] != sidus_checksum(payload):
+        return None
+
+    command_type = payload[9] & 0x7F
+    if command_type != 0x0A:
+        return None
+
+    power_state = (payload[2] >> 7) & 0x01
+    battery_time = payload[3] | ((payload[4] & 0x01) << 8)
+    battery_percentage = (payload[4] >> 1) & 0x7F
+    battery_voltage = payload[5] | (payload[6] << 8)
+    external_voltage = payload[7] | (payload[8] << 8)
+    operation_type = (payload[9] >> 7) & 0x01
+    return SidusPowerInfo(
+        power_supply_mode="battery" if power_state else "ac",
+        battery_time_minutes=battery_time,
+        battery_percentage=battery_percentage,
+        battery_voltage=battery_voltage,
+        external_voltage=external_voltage,
+        command_type=command_type,
+        operation_type=operation_type,
+        source_address=source_address,
+        destination_address=destination_address,
+        sequence=sequence,
+    )
 
 
 def access_payload(sidus_payload: bytes, opcode: int = SIDUS_ACCESS_OPCODE) -> bytes:
@@ -435,6 +499,16 @@ def decode_mesh_proxy_access(
         if sidus_payload is not None
         else None
     )
+    sidus_power_info = (
+        decode_sidus_power_info_payload(
+            sidus_payload,
+            source_address=source_address,
+            destination_address=destination_address,
+            sequence=sequence,
+        )
+        if sidus_payload is not None
+        else None
+    )
     return DecodedAccessMessage(
         source_address=source_address,
         destination_address=destination_address,
@@ -442,6 +516,7 @@ def decode_mesh_proxy_access(
         access_payload=decoded_access,
         sidus_payload=sidus_payload,
         sidus_status=sidus_status,
+        sidus_power_info=sidus_power_info,
     )
 
 
