@@ -1,0 +1,86 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add amaran",
+        "description": "Import supported lights from amaran Desktop, or add one light manually.",
+        "data": {
+          "setup_method": "Setup method"
+        }
+      },
+      "import": {
+        "title": "Import amaran lights",
+        "description": "Export your Amaran lights from the desktop app, then paste the JSON here. On macOS, run: python3 scripts/export_amaran.py",
+        "data": {
+          "import_method": "Import method"
+        }
+      },
+      "import_json": {
+        "title": "Import amaran lights",
+        "description": "Export your Amaran lights from the desktop app, then paste the JSON here. This runs locally and reads the Amaran Desktop database. Do not share the exported JSON publicly because it contains your lighting mesh keys. The JSON contains the keys Home Assistant needs plus each light name, model, address, and capabilities.",
+        "data": {
+          "import_json": "Amaran export JSON",
+          "source_address": "Source address (advanced)",
+          "proxy_mac": "Known-good BLE connection MAC (optional, advanced)",
+          "iv_index": "IV index",
+          "sequence": "Starting sequence",
+          "ttl": "TTL (advanced)"
+        }
+      },
+      "import_path": {
+        "title": "Import amaran lights from local path",
+        "description": "Advanced fallback for users who already mounted or copied amaran.db or JSON into Home Assistant. Source path on macOS to copy from: ~/Library/Application Support/amaran Desktop/*_secure_id/amaran.db. After copying into HA, paste the HA-local path here, for example /config/amaran.db.",
+        "data": {
+          "import_path": "amaran.db or JSON path, e.g. /config/amaran.db",
+          "source_address": "Source address (advanced)",
+          "proxy_mac": "Known-good BLE connection MAC (optional, advanced)",
+          "iv_index": "IV index",
+          "sequence": "Starting sequence",
+          "ttl": "TTL (advanced)"
+        }
+      },
+      "select_fixture": {
+        "title": "Select light",
+        "description": "Select one light from {light_count} lights found in {source}. This creates one independent integration entry. Repeat Add integration to add another light.\n\nDetected lights:\n{detected_lights}",
+        "data": {
+          "selected_fixture": "Light"
+        }
+      },
+      "manual": {
+        "title": "Add amaran light manually",
+        "description": "Add one light per config entry. Keys must come from your own export or desktop database.",
+        "data": {
+          "name": "Name",
+          "address": "Connectable BLE address or UUID",
+          "ble_mac": "Physical BLE MAC",
+          "proxy_mac": "Known-good BLE connection MAC (optional, advanced)",
+          "node_address": "Light address (advanced)",
+          "source_address": "Source address (advanced)",
+          "net_key": "Network key",
+          "app_key": "App key",
+          "iv_index": "IV index",
+          "sequence": "Starting sequence",
+          "ttl": "TTL (advanced)"
+        }
+      }
+    },
+    "error": {
+      "invalid_input": "Check the address, optional BLE connection MAC, advanced addresses, sequence, IV index, TTL, and 32-character hex keys."
+    },
+    "abort": {
+      "already_configured": "This light and source address are already configured.",
+      "bluetooth_discovery_disabled": "Bluetooth discovery is disabled. Add lights by importing your Amaran export JSON."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Advanced connection settings",
+        "description": "Leave blank to use the first reachable known light. Set a known-good BLE MAC to prefer it.",
+        "data": {
+          "proxy_mac": "Known-good BLE connection MAC (optional)"
+        }
+      }
+    }
+  }
+}

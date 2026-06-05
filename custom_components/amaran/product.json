@@ -1,0 +1,626 @@
+[
+      {
+        "id": 1,
+        "name": "LS C300d II",
+        "hex": "00005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182648.png",
+        "public_version": 100
+      },
+      {
+        "id": 2,
+        "name": "LS 600X Pro",
+        "hex": "000D5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182714.png",
+        "public_version": 100
+      },
+      {
+        "id": 3,
+        "name": "amaran COB 60x",
+        "hex": "40075",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182729.png",
+        "public_version": 100
+      },
+      {
+        "id": 4,
+        "name": "amaran P60c",
+        "hex": "40015",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182746.png",
+        "public_version": 100
+      },
+      {
+        "id": 6,
+        "name": "amaran 200x",
+        "hex": "40055",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182819.png",
+        "public_version": 100
+      },
+      {
+        "id": 7,
+        "name": "LS 600d",
+        "hex": "000C5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 8,
+        "name": "LS 350d",
+        "hex": "000B5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 11,
+        "name": "MC",
+        "hex": "05006",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182937.png",
+        "public_version": 100
+      },
+      {
+        "id": 12,
+        "name": "amaran P60x",
+        "hex": "40005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182955.png",
+        "public_version": 100
+      },
+      {
+        "id": 13,
+        "name": "amaran 100x S",
+        "hex": "400O5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183011.png",
+        "public_version": 100
+      },
+      {
+        "id": 15,
+        "name": "SGC-H60",
+        "hex": "20005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 18,
+        "name": "amaran F7c",
+        "hex": "400A5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 19,
+        "name": "amaran 300c",
+        "hex": "400K5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183040.png",
+        "public_version": 100
+      },
+      {
+        "id": 20,
+        "name": "amaran Ace 25x",
+        "hex": "400T5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 21,
+        "name": "B7c",
+        "hex": "04005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183058.png",
+        "public_version": 100
+      },
+      {
+        "id": 22,
+        "name": "LS 60d",
+        "hex": "00075",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183113.png",
+        "public_version": 100
+      },
+      {
+        "id": 23,
+        "name": "LS 1200d Pro",
+        "hex": "000E5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183128.png",
+        "public_version": 100
+      },
+      {
+        "id": 25,
+        "name": "amaran F21c",
+        "hex": "400C5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183204.png",
+        "public_version": 100
+      },
+      {
+        "id": 26,
+        "name": "amaran PT1c",
+        "hex": "400G5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183219.png",
+        "public_version": 100
+      },
+      {
+        "id": 27,
+        "name": "Storm 1000c",
+        "hex": "000P5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 28,
+        "name": "Motorized F14 Fresnel",
+        "hex": "EM015",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 32,
+        "name": "amaran T2c ",
+        "hex": "40085",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183142.png",
+        "public_version": 100
+      },
+      {
+        "id": 33,
+        "name": "LS 150x",
+        "hex": "00035",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 34,
+        "name": "LS 1500d",
+        "hex": "00065",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 35,
+        "name": "amaran Go",
+        "hex": "400V5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 39,
+        "name": "INFINIMAT 16",
+        "hex": "09015",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183304.png",
+        "public_version": 100
+      },
+      {
+        "id": 40,
+        "name": "LS 50d",
+        "hex": "00015",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 41,
+        "name": "Nova P600C",
+        "hex": "02035",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183330.png",
+        "public_version": 100
+      },
+      {
+        "id": 42,
+        "name": "LS 600c Pro",
+        "hex": "000G5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183346.png",
+        "public_version": 100
+      },
+      {
+        "id": 44,
+        "name": "MC Pro",
+        "hex": "05010",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183401.png",
+        "public_version": 100
+      },
+      {
+        "id": 45,
+        "name": "amaran 100d S",
+        "hex": "400N5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183414.png",
+        "public_version": 100
+      },
+      {
+        "id": 46,
+        "name": "amaran P40x",
+        "hex": "400S5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 47,
+        "name": "LS 600d Pro",
+        "hex": "00055",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183440.png",
+        "public_version": 100
+      },
+      {
+        "id": 48,
+        "name": "amaran F22x",
+        "hex": "400D5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183455.png",
+        "public_version": 100
+      },
+      {
+        "id": 49,
+        "name": "Electro Storm XT26",
+        "hex": "000J5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183509.png",
+        "public_version": 100
+      },
+      {
+        "id": 50,
+        "name": "Storm 1200x",
+        "hex": "000M5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 52,
+        "name": "amaran F22c",
+        "hex": "400E5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183526.png",
+        "public_version": 100
+      },
+      {
+        "id": 53,
+        "name": "amaran 60d S",
+        "hex": "400L5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183542.png",
+        "public_version": 100
+      },
+      {
+        "id": 54,
+        "name": "INFINIMAT 4",
+        "hex": "09005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183556.png",
+        "public_version": 100
+      },
+      {
+        "id": 56,
+        "name": "LS 300x",
+        "hex": "00045",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183622.png",
+        "public_version": 100
+      },
+      {
+        "id": 57,
+        "name": "SGC-P60",
+        "hex": "20025",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 61,
+        "name": "Nova P300c",
+        "hex": "02005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183638.png",
+        "public_version": 100
+      },
+      {
+        "id": 63,
+        "name": "SGC-H120",
+        "hex": "20015",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 64,
+        "name": "amaran 100x",
+        "hex": "40035",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183654.png",
+        "public_version": 100
+      },
+      {
+        "id": 65,
+        "name": "Electro Storm CS15",
+        "hex": "000K5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183709.png",
+        "public_version": 100
+      },
+      {
+        "id": 67,
+        "name": "LS 60x",
+        "hex": "00085",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183736.png",
+        "public_version": 100
+      },
+      {
+        "id": 68,
+        "name": "amaran T4c ",
+        "hex": "40095",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183751.png",
+        "public_version": 100
+      },
+      {
+        "id": 69,
+        "name": "LS 600c Pro II",
+        "hex": "000L5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183838.png",
+        "public_version": 100
+      },
+      {
+        "id": 71,
+        "name": "amaran 200d S",
+        "hex": "400P5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183856.png",
+        "public_version": 100
+      },
+      {
+        "id": 72,
+        "name": "MC",
+        "hex": "05008",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183909.png",
+        "public_version": 100
+      },
+      {
+        "id": 74,
+        "name": "amaran 200d",
+        "hex": "40045",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183927.png",
+        "public_version": 100
+      },
+      {
+        "id": 75,
+        "name": "amaran PT4c",
+        "hex": "400I5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183943.png",
+        "public_version": 100
+      },
+      {
+        "id": 76,
+        "name": "amaran 150c",
+        "hex": "400J5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183959.png",
+        "public_version": 100
+      },
+      {
+        "id": 77,
+        "name": "amaran 200c",
+        "hex": "400R5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184013.png",
+        "public_version": 100
+      },
+      {
+        "id": 80,
+        "name": "MT Pro",
+        "hex": "000F5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184026.png",
+        "public_version": 100
+      },
+      {
+        "id": 81,
+        "name": "LS 1500x Pro",
+        "hex": "000I5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 83,
+        "name": "LS 600x",
+        "hex": "00095",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 84,
+        "name": "amaran F21x",
+        "hex": "400B5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184102.png",
+        "public_version": 100
+      },
+      {
+        "id": 85,
+        "name": "INFINIBAR  PB3",
+        "hex": "07006",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184115.png",
+        "public_version": 100
+      },
+      {
+        "id": 86,
+        "name": "amaran 200x S",
+        "hex": "400Q5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184128.png",
+        "public_version": 100
+      },
+      {
+        "id": 87,
+        "name": "Storm 80c",
+        "hex": "000N5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 90,
+        "name": "amaran 100d",
+        "hex": "40025",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184152.png",
+        "public_version": 100
+      },
+      {
+        "id": 91,
+        "name": "amaran Ace 25c",
+        "hex": "400U5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 94,
+        "name": "amaran Verge",
+        "hex": "400Y5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 95,
+        "name": "LS 50x",
+        "hex": "00025",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 96,
+        "name": "MC",
+        "hex": "05005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184219.png",
+        "public_version": 100
+      },
+      {
+        "id": 97,
+        "name": "MC",
+        "hex": "05007",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184231.png",
+        "public_version": 100
+      },
+      {
+        "id": 98,
+        "name": "INFINIBAR  PB12",
+        "hex": "07008",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184245.png",
+        "public_version": 100
+      },
+      {
+        "id": 100,
+        "name": "SGC-P120",
+        "hex": "20035",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 101,
+        "name": "amaran SM5c",
+        "hex": "400F5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 102,
+        "name": "amaran PT2c",
+        "hex": "400H5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184337.png",
+        "public_version": 100
+      },
+      {
+        "id": 103,
+        "name": "amaran 60x S",
+        "hex": "400M5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184350.png",
+        "public_version": 100
+      },
+      {
+        "id": 104,
+        "name": "Motorized Yoke",
+        "hex": "EM005",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 105,
+        "name": "amaran Verge Max",
+        "hex": "400Z5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
+        "public_version": 100
+      },
+      {
+        "id": 106,
+        "name": "amaran COB 60d",
+        "hex": "40065",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184406.png",
+        "public_version": 100
+      },
+      {
+        "id": 107,
+        "name": "INFINIBAR  PB6",
+        "hex": "07007",
+        "authorized_amaran": true,
+        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184426.png",
+        "public_version": 100
+      },
+      {
+        "id": 647,
+        "name": "amaran Pano 60c",
+        "hex": "400W5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      },
+      {
+        "id": 648,
+        "name": "amaran Pano 120c",
+        "hex": "400X5",
+        "authorized_amaran": true,
+        "icon_url_amaran": "",
+        "public_version": 100
+      }
+    ]
