@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable, Mapping
 import glob
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -14,6 +16,9 @@ from typing import Any
 
 DESKTOP_DB_GLOB = (
     "~/Library/Application Support/amaran Desktop/*_secure_id/amaran.db"
+)
+DESKTOP_DB_FALLBACK_GLOB = (
+    "~/Library/Application Support/amaran Desktop/*/amaran.db"
 )
 DEFAULT_SOURCE_ADDRESS = "0x000f"
 DEFAULT_IV_INDEX = 0
@@ -40,18 +45,58 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="amaran Desktop SQLite DB path",
     )
-    parser.add_argument(
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument(
         "--output",
         type=Path,
         help="write JSON to this path instead of stdout",
     )
+    output.add_argument(
+        "--stdout",
+        action="store_true",
+        help="write JSON to stdout (default)",
+    )
     return parser.parse_args()
 
 
-def find_desktop_db() -> Path:
+def desktop_db_globs(env: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """Return macOS and Windows amaran Desktop DB glob patterns."""
+
+    env = os.environ if env is None else env
+    patterns = [
+        DESKTOP_DB_GLOB,
+        DESKTOP_DB_FALLBACK_GLOB,
+    ]
+
+    for variable in ("APPDATA", "LOCALAPPDATA"):
+        if base := env.get(variable):
+            patterns.append(
+                str(Path(base) / "amaran Desktop" / "*_secure_id" / "amaran.db")
+            )
+
+    if userprofile := env.get("USERPROFILE"):
+        profile = Path(userprofile)
+        patterns.extend(
+            str(
+                profile
+                / "AppData"
+                / folder
+                / "amaran Desktop"
+                / "*_secure_id"
+                / "amaran.db"
+            )
+            for folder in ("Roaming", "Local")
+        )
+
+    return tuple(dict.fromkeys(patterns))
+
+
+def find_desktop_db(patterns: Iterable[str] | None = None) -> Path:
+    patterns = desktop_db_globs() if patterns is None else tuple(patterns)
     paths = [
         Path(path)
-        for path in glob.glob(str(Path(DESKTOP_DB_GLOB).expanduser()))
+        for pattern in patterns
+        for path in glob.glob(str(Path(pattern).expanduser()))
         if Path(path).is_file()
     ]
     if not paths:
@@ -244,7 +289,12 @@ def main() -> int:
         payload = export_payload(db_path)
         text = json.dumps(payload, indent=2) + "\n"
         if args.output:
-            args.output.expanduser().write_text(text, encoding="utf-8")
+            output_path = args.output.expanduser()
+            try:
+                output_path.write_text(text, encoding="utf-8")
+            except OSError as err:
+                raise ExportError("output file could not be written") from err
+            print(f"Export written to {args.output}")
         else:
             sys.stdout.write(text)
     except ExportError as err:

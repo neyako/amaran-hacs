@@ -27,8 +27,8 @@ Unknown models default to brightness and color temperature when imported.
 
 - Home Assistant with Bluetooth available.
 - A provisioned Amaran light already paired in the official app.
-- amaran Desktop on macOS, or a copied amaran Desktop database.
-- Export JSON with the one-line macOS command below.
+- amaran Desktop on macOS or Windows, or a copied amaran Desktop database.
+- Export JSON with one of the commands below.
 
 An ESPHome Bluetooth Proxy close to the lights is recommended for reliable
 Bluetooth coverage, especially when Home Assistant runs far from the lights.
@@ -59,11 +59,35 @@ On macOS:
 curl -fsSL https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/scripts/export_amaran.py | python3 - | pbcopy
 ```
 
+On Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/scripts/export_amaran.py | py - --output amaran-export.json
+```
+
+If you have this repository checked out on Windows:
+
+```powershell
+py scripts\export_amaran.py
+py scripts\export_amaran.py --stdout
+py scripts\export_amaran.py --output amaran-export.json
+```
+
+This writes `amaran-export.json` in the current folder. The exporter
+automatically searches these amaran Desktop locations:
+
+```text
+%APPDATA%\amaran Desktop\*_secure_id\amaran.db
+%LOCALAPPDATA%\amaran Desktop\*_secure_id\amaran.db
+%USERPROFILE%\AppData\Roaming\amaran Desktop\*_secure_id\amaran.db
+%USERPROFILE%\AppData\Local\amaran Desktop\*_secure_id\amaran.db
+```
+
 Then in Home Assistant:
 
 1. Add the `amaran` integration.
 2. Choose import setup.
-3. Paste the copied JSON.
+3. Paste the copied JSON, or open `amaran-export.json` and paste its contents.
 4. Select exactly one light.
 5. Repeat Add integration with the same JSON for each additional light.
 
