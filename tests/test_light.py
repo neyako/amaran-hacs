@@ -17,6 +17,7 @@ from custom_components.amaran.const import (
     CONF_BATTERY_CAPABLE,
     CONF_BLE_MAC,
     CONF_NODE_ADDRESS,
+    DEFAULT_ENABLE_PRESENCE_CHECKING,
     DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS,
     DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
     DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
@@ -354,7 +355,8 @@ class LightIconTest(unittest.TestCase):
 
 
 class ClientAvailabilityTest(unittest.TestCase):
-    def test_presence_scan_repeats_inside_freshness_window(self) -> None:
+    def test_presence_tracking_defaults_to_transport_only(self) -> None:
+        self.assertFalse(DEFAULT_ENABLE_PRESENCE_CHECKING)
         self.assertGreaterEqual(DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS, 60.0)
         self.assertLess(
             DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS
@@ -382,20 +384,21 @@ class ClientAvailabilityTest(unittest.TestCase):
         self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
         self.assertTrue(client.is_available)
 
-    def test_proxy_ready_without_light_advertisement_reports_unavailable(self) -> None:
+    def test_proxy_ready_without_light_advertisement_reports_available(self) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
         )
 
         self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
-        self.assertFalse(client.is_available)
+        self.assertTrue(client.is_available)
         self.assertIsNone(client.fixture_stale_seconds)
 
-    def test_cached_stale_advertisement_does_not_become_fresh(self) -> None:
+    def test_cached_stale_advertisement_reports_unavailable_when_enabled(self) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
+            presence_checking=True,
         )
 
         client.mark_advertisement_seen(
@@ -448,17 +451,61 @@ class ClientAvailabilityTest(unittest.TestCase):
             sys.modules.pop("homeassistant.components.bluetooth", None)
 
         self.assertEqual(calls, [("AA:BB:CC:DD:EE:FF", False)])
+        self.assertEqual(client.last_advertisement_address, "AA:BB:CC:DD:EE:FF")
         self.assertTrue(client.is_available)
 
-    def test_presence_expiry_rechecks_ha_cache_before_notifying(self) -> None:
+    def test_advertisement_update_does_not_notify_availability(self) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+        )
+        availability_updates = 0
+
+        def _availability_update() -> None:
+            nonlocal availability_updates
+            availability_updates += 1
+
+        client.subscribe_availability(_availability_update)
+        client.mark_advertisement_seen(
+            types.SimpleNamespace(address="AA:BB:CC:DD:EE:FF", rssi=-42)
+        )
+
+        self.assertEqual(availability_updates, 0)
+        self.assertTrue(client.is_available)
+
+    def test_advertisement_update_notifies_availability_when_gate_enabled(
+        self,
+    ) -> None:
+        client = _client_for_availability(
+            TRANSPORT_STATE_PROXY_READY,
+            connected=True,
+            presence_checking=True,
+        )
+        availability_updates = 0
+
+        def _availability_update() -> None:
+            nonlocal availability_updates
+            availability_updates += 1
+
+        self.assertFalse(client.is_available)
+
+        client.subscribe_availability(_availability_update)
+        client.mark_advertisement_seen(
+            types.SimpleNamespace(address="AA:BB:CC:DD:EE:FF", rssi=-42)
+        )
+
+        self.assertEqual(availability_updates, 1)
+        self.assertTrue(client.is_available)
+
+    def test_presence_expiry_marks_unavailable_when_gate_enabled(self) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
             last_seen=time.time(),
+            presence_checking=True,
         )
         client.hass = object()
         scheduled: list[Any] = []
-        cache_checks = 0
         availability_updates = 0
         event = types.ModuleType("homeassistant.helpers.event")
 
@@ -468,85 +515,61 @@ class ClientAvailabilityTest(unittest.TestCase):
             scheduled.append(callback)
             return lambda: None
 
-        def _seed_from_cache() -> None:
-            nonlocal cache_checks
-            cache_checks += 1
-            client._last_advertisement_seen = time.time()
-
         def _availability_update() -> None:
             nonlocal availability_updates
             availability_updates += 1
 
         event.async_call_later = _async_call_later
-        client._seed_last_advertisement_from_cache = _seed_from_cache
         client.subscribe_availability(_availability_update)
         sys.modules["homeassistant.helpers.event"] = event
         try:
             client._schedule_presence_expiry()
+            client._last_advertisement_seen = (
+                time.time() - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS - 1.0
+            )
             scheduled[0](None)
         finally:
             sys.modules.pop("homeassistant.helpers.event", None)
 
-        self.assertEqual(cache_checks, 1)
         self.assertEqual(availability_updates, 1)
-        self.assertTrue(client.is_available)
+        self.assertFalse(client.is_available)
 
-    def test_stale_presence_does_not_schedule_immediate_expiry_loop(self) -> None:
-        client = _client_for_availability(
-            TRANSPORT_STATE_PROXY_READY,
-            connected=True,
-            last_seen=(
-                time.time() - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS - 1.0
-            ),
-        )
-        client.hass = object()
-        scheduled: list[Any] = []
-        event = types.ModuleType("homeassistant.helpers.event")
-        event.async_call_later = lambda *_args, **_kwargs: scheduled.append(True)
-        sys.modules["homeassistant.helpers.event"] = event
-        try:
-            client._schedule_presence_expiry()
-        finally:
-            sys.modules.pop("homeassistant.helpers.event", None)
-
-        self.assertEqual(scheduled, [])
-
-    def test_stale_light_advertisement_reports_unavailable(self) -> None:
+    def test_stale_light_advertisement_reports_unavailable_when_enabled(self) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
             last_seen=(
                 time.time() - DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS - 5.0
             ),
+            presence_checking=True,
         )
 
         self.assertFalse(client.is_available)
         self.assertAlmostEqual(client.fixture_stale_seconds, 5.0, delta=1.0)
 
-    def test_presence_checking_disabled_uses_transport_only(self) -> None:
+    def test_presence_tracking_option_gates_availability(self) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
-            presence_checking=False,
+            presence_checking=True,
         )
 
-        self.assertTrue(client.is_available)
+        self.assertFalse(client.is_available)
         self.assertIsNone(client.fixture_stale_seconds)
 
-    def test_command_failure_marks_unavailable_until_advertisement_returns(
+    def test_command_failure_does_not_latch_light_unavailable(
         self,
     ) -> None:
         client = _client_for_availability(
             TRANSPORT_STATE_PROXY_READY,
             connected=True,
-            last_seen=time.time(),
         )
 
         self.assertTrue(client.is_available)
 
         client._mark_command_failure(RuntimeError("write failed"))
 
-        self.assertFalse(client.is_available)
+        self.assertTrue(client.is_available)
 
         client.mark_advertisement_seen(
             types.SimpleNamespace(address="AA:BB:CC:DD:EE:FF", rssi=-42)
@@ -648,7 +671,7 @@ def _client_for_availability(
     *,
     connected: bool,
     last_seen: float | None = None,
-    presence_checking: bool = True,
+    presence_checking: bool = False,
     battery_capable: bool = False,
 ) -> AmaranSidusClient:
     client = object.__new__(AmaranSidusClient)
@@ -663,7 +686,6 @@ def _client_for_availability(
         "AA:BB:CC:DD:EE:FF" if last_seen is not None else None
     )
     client._last_advertisement_rssi = -50 if last_seen is not None else None
-    client._last_command_failure_at = None
     client._presence_checking_enabled = presence_checking
     client._presence_unavailable_after = DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS
     client._availability_callbacks = []

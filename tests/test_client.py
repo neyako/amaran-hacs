@@ -126,7 +126,7 @@ class SharedMeshTransportModelTest(unittest.TestCase):
         self.assertEqual(mesh.proxy_address, manual_proxy)
         self.assertEqual(mesh.proxy_candidates[0], manual_proxy)
 
-    def test_shared_proxy_ready_requires_each_fixture_advertisement(self) -> None:
+    def test_shared_proxy_ready_uses_transport_only_availability(self) -> None:
         fixtures = _fixtures()
         entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
         mesh = SidusMeshNetwork(types.SimpleNamespace(data={}), entry, fixtures)
@@ -139,7 +139,7 @@ class SharedMeshTransportModelTest(unittest.TestCase):
         ]
 
         self.assertTrue(mesh.is_ready)
-        self.assertFalse(any(client.is_available for client in clients))
+        self.assertTrue(all(client.is_available for client in clients))
 
         for client, fixture in zip(clients, fixtures, strict=True):
             client.mark_advertisement_seen(
@@ -148,13 +148,13 @@ class SharedMeshTransportModelTest(unittest.TestCase):
 
         self.assertTrue(all(client.is_available for client in clients))
 
-    def test_presence_checking_can_be_disabled_for_transport_only_availability(
+    def test_presence_checking_option_gates_transport_availability(
         self,
     ) -> None:
         fixtures = _fixtures()
         entry = FakeEntry(
             {CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F},
-            {CONF_ENABLE_PRESENCE_CHECKING: False},
+            {CONF_ENABLE_PRESENCE_CHECKING: True},
         )
         mesh = SidusMeshNetwork(types.SimpleNamespace(data={}), entry, fixtures)
         mesh._transport = FakeMeshTransport(ready=True)
@@ -164,6 +164,13 @@ class SharedMeshTransportModelTest(unittest.TestCase):
             )
             for fixture in fixtures
         ]
+
+        self.assertFalse(any(client.is_available for client in clients))
+
+        for client, fixture in zip(clients, fixtures, strict=True):
+            client.mark_advertisement_seen(
+                types.SimpleNamespace(address=fixture[CONF_BLE_MAC], rssi=-61)
+            )
 
         self.assertTrue(all(client.is_available for client in clients))
 
@@ -266,6 +273,25 @@ class SharedMeshTransportModelTest(unittest.TestCase):
 
 
 class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
+    async def test_warmup_loop_uses_background_task_when_available(self) -> None:
+        fixtures = _fixtures()
+        hass = FakeTaskHass()
+        entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
+        mesh = SidusMeshNetwork(hass, entry, fixtures)
+        mesh._transport = FakeMeshTransport()
+
+        await mesh.async_setup()
+        try:
+            mesh.async_start_warmup("startup")
+
+            self.assertEqual(
+                hass.background_task_names,
+                ["amaran_entry-1_mesh_warmup"],
+            )
+            self.assertEqual(hass.setup_task_names, [])
+        finally:
+            await mesh.async_close()
+
     async def test_reload_warmup_and_disconnect_reconnect_restore_availability(
         self,
     ) -> None:
@@ -326,6 +352,26 @@ class FakeMeshTransport:
     async def async_close(self) -> None:
         self.connected = False
         self.state = TRANSPORT_STATE_DISCONNECTED
+
+
+class FakeTaskHass:
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {}
+        self.background_task_names: list[str] = []
+        self.setup_task_names: list[str] = []
+
+    def async_create_background_task(
+        self, coroutine: Any, name: str, **_kwargs: Any
+    ) -> asyncio.Task:
+        self.background_task_names.append(name)
+        return asyncio.create_task(coroutine, name=name)
+
+    def async_create_task(
+        self, coroutine: Any, name: str | None = None, **_kwargs: Any
+    ) -> asyncio.Task:
+        if name is not None:
+            self.setup_task_names.append(name)
+        return asyncio.create_task(coroutine, name=name)
 
 
 async def _wait_for(predicate: Any) -> None:

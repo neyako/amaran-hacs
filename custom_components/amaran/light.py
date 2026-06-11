@@ -184,7 +184,7 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
 
     @property
     def available(self) -> bool:
-        """Return true when proxy and fixture reachability checks pass."""
+        """Return true when the shared mesh transport is ready."""
 
         return self._client.is_available
 

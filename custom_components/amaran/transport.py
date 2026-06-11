@@ -721,14 +721,18 @@ class SidusPersistentTransport(SidusBaseTransport):
 
         if self._worker_task is None or self._worker_task.done():
             name = f"amaran_{self._settings.address}_ble_worker"
-            create_task = getattr(self._settings.hass, "async_create_task", None)
-            if callable(create_task):
-                self._worker_task = create_task(self._worker_loop(), name=name)
+            coroutine = self._worker_loop()
+            create_background_task = getattr(
+                self._settings.hass, "async_create_background_task", None
+            )
+            if callable(create_background_task):
+                self._worker_task = create_background_task(coroutine, name=name)
             else:
-                self._worker_task = asyncio.create_task(
-                    self._worker_loop(),
-                    name=name,
-                )
+                create_task = getattr(self._settings.hass, "async_create_task", None)
+                if callable(create_task):
+                    self._worker_task = create_task(coroutine, name=name)
+                else:
+                    self._worker_task = asyncio.create_task(coroutine, name=name)
 
     async def async_close(self) -> None:
         """Stop worker and close the cached BLE session."""

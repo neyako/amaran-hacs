@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 import unittest
 
 from custom_components.amaran.const import (
@@ -102,14 +103,16 @@ class FakeBluetoothModule:
 
 
 class FakePersistentTransport(SidusPersistentTransport):
-    def __init__(self, *, sequence_manager: FakeSequenceManager) -> None:
+    def __init__(
+        self, *, sequence_manager: FakeSequenceManager, hass: object | None = None
+    ) -> None:
         self.save_count = 0
         self.lookup_count = 0
         self.connect_count = 0
         self.discover_count = 0
         self.clients: list[FakeBleClient] = []
         super().__init__(
-            settings=_settings(),
+            settings=_settings(hass=hass),
             sequence_manager=sequence_manager,
             save_sequence=self._save_sequence,
             mode=TRANSPORT_MODE_PERSISTENT,
@@ -186,6 +189,24 @@ class FakeTransientTransport(SidusTransientTransport):
 
 
 class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
+    async def test_worker_loop_uses_background_task_when_available(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        hass = FakeTaskHass()
+        transport = FakePersistentTransport(
+            sequence_manager=sequence_manager,
+            hass=hass,
+        )
+
+        await transport.async_setup()
+
+        self.assertEqual(
+            hass.background_task_names,
+            ["amaran_AA:BB:CC:DD:EE:FF_ble_worker"],
+        )
+        self.assertEqual(hass.setup_task_names, [])
+
+        await transport.async_close()
+
     async def test_persistent_warmup_connects_without_sequence_or_write(self) -> None:
         sequence_manager = FakeSequenceManager()
         transport = FakePersistentTransport(sequence_manager=sequence_manager)
@@ -426,6 +447,7 @@ async def _noop_save() -> None:
 
 def _settings(
     *,
+    hass: object | None = None,
     node_address: int = 0x000B,
     source_address: int = 0x000F,
     proxy_selection: str = "manual",
@@ -433,7 +455,7 @@ def _settings(
     access_callback: object | None = None,
 ) -> SidusTransportSettings:
     return SidusTransportSettings(
-        hass=object(),
+        hass=object() if hass is None else hass,
         address="AA:BB:CC:DD:EE:FF",
         name="Fake Sidus",
         net_key=NET_KEY,
@@ -447,3 +469,22 @@ def _settings(
         proxy_candidates=proxy_candidates,
         access_callback=access_callback,
     )
+
+
+class FakeTaskHass:
+    def __init__(self) -> None:
+        self.background_task_names: list[str] = []
+        self.setup_task_names: list[str] = []
+
+    def async_create_background_task(
+        self, coroutine: Any, name: str, **_kwargs: Any
+    ) -> asyncio.Task:
+        self.background_task_names.append(name)
+        return asyncio.create_task(coroutine, name=name)
+
+    def async_create_task(
+        self, coroutine: Any, name: str | None = None, **_kwargs: Any
+    ) -> asyncio.Task:
+        if name is not None:
+            self.setup_task_names.append(name)
+        return asyncio.create_task(coroutine, name=name)

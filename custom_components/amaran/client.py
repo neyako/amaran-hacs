@@ -390,11 +390,17 @@ class SidusMeshNetwork:
 
         name = f"amaran_{self.entry.entry_id}_mesh_warmup"
         coroutine = self._async_warmup_loop(reason)
-        create_task = getattr(self.hass, "async_create_task", None)
-        if callable(create_task):
-            self._warmup_task = create_task(coroutine, name=name)
+        create_background_task = getattr(
+            self.hass, "async_create_background_task", None
+        )
+        if callable(create_background_task):
+            self._warmup_task = create_background_task(coroutine, name=name)
         else:
-            self._warmup_task = asyncio.create_task(coroutine, name=name)
+            create_task = getattr(self.hass, "async_create_task", None)
+            if callable(create_task):
+                self._warmup_task = create_task(coroutine, name=name)
+            else:
+                self._warmup_task = asyncio.create_task(coroutine, name=name)
 
     async def _async_warmup_loop(self, reason: str) -> None:
         backoff = self._warmup_policy
@@ -510,7 +516,6 @@ class AmaranSidusClient:
         self._last_advertisement_seen: float | None = None
         self._last_advertisement_address: str | None = None
         self._last_advertisement_rssi: int | None = None
-        self._last_command_failure_at: float | None = None
         self._presence_checking_enabled = _entry_bool(
             entry,
             CONF_ENABLE_PRESENCE_CHECKING,
@@ -589,19 +594,19 @@ class AmaranSidusClient:
 
     @property
     def presence_checking_enabled(self) -> bool:
-        """Return true when light-level BLE advertisement checks are enforced."""
+        """Return true when light advertisements gate availability."""
 
         return self._presence_checking_enabled
 
     @property
     def presence_unavailable_after(self) -> float:
-        """Return seconds without a light advertisement before unavailable."""
+        """Return seconds before a light advertisement is reported stale."""
 
         return self._presence_unavailable_after
 
     @property
     def fixture_reachable(self) -> bool:
-        """Return current per-light reachability."""
+        """Return true when the shared mesh transport can send commands."""
 
         return self.is_available
 
@@ -712,7 +717,7 @@ class AmaranSidusClient:
 
     @property
     def is_available(self) -> bool:
-        """Return true when shared transport and this light are reachable."""
+        """Return true when the shared transport and enabled light gate are ready."""
 
         return self._mesh_network.is_ready and self._fixture_presence_ok()
 
@@ -798,7 +803,7 @@ class AmaranSidusClient:
         return _unsubscribe
 
     def mark_advertisement_seen(self, service_info: Any) -> None:
-        """Record fixture/proxy advertisement freshness."""
+        """Record fixture advertisement freshness."""
 
         address = str(getattr(service_info, "address", "") or "").strip()
         if not address:
@@ -1166,30 +1171,24 @@ class AmaranSidusClient:
         )
         self._notify_battery_callbacks()
 
-    def _fixture_presence_ok(self) -> bool:
-        if not self._presence_checking_enabled:
-            return True
-        if self._last_advertisement_seen is None:
-            return False
-        if (
-            self._last_command_failure_at is not None
-            and self._last_advertisement_seen <= self._last_command_failure_at
-        ):
-            return False
-        return (
-            time.time() - self._last_advertisement_seen
-        ) <= self._presence_unavailable_after
-
     def _mark_command_failure(self, err: Exception) -> None:
         was_available = self.is_available
-        self._last_command_failure_at = time.time()
         _LOGGER.debug(
-            "Sidus light marked unavailable after command failure light=%s error=%r",
+            "Sidus light command failed light=%s error=%r",
             self.name,
             err,
         )
         if self.is_available != was_available:
             self._notify_availability_callbacks()
+
+    def _fixture_presence_ok(self) -> bool:
+        if not self._presence_checking_enabled:
+            return True
+        if self._last_advertisement_seen is None:
+            return False
+        return (
+            time.time() - self._last_advertisement_seen
+        ) <= self._presence_unavailable_after
 
     def _schedule_presence_expiry(self) -> None:
         self._cancel_presence_expiry()
