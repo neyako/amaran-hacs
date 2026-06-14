@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import logging
 import time
@@ -37,6 +37,7 @@ from .const import (
     CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
     CONF_TTL,
+    DEFAULT_BATTERY_POLL_INTERVAL_SECONDS,
     DEFAULT_IV_INDEX,
     DEFAULT_ENABLE_PRESENCE_CHECKING,
     DEFAULT_NAME,
@@ -44,6 +45,7 @@ from .const import (
     DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS,
     DEFAULT_SEQUENCE,
     DEFAULT_SOURCE_ADDRESS,
+    DEFAULT_STATE_POLL_INTERVAL_SECONDS,
     DEFAULT_TTL,
     DOMAIN,
     MAX_COLOR_TEMP_KELVIN,
@@ -63,6 +65,7 @@ from .commands import (
     power_status_request_payloads,
     power_off_payloads,
     power_on_payloads,
+    status_request_payloads,
 )
 from .fixtures import detect_fixture_profile, supported_color_modes_for_fixture
 from .protocol import (
@@ -537,6 +540,8 @@ class AmaranSidusClient:
         self._battery_power_info: dict[str, Any] | None = None
         self._battery_callbacks: list[Any] = []
         self._battery_unsubscribe: Any | None = None
+        self._state_poll_unsub: Any | None = None
+        self._battery_poll_unsub: Any | None = None
 
     @property
     def node_address(self) -> int:
@@ -850,6 +855,60 @@ class AmaranSidusClient:
             self._battery_unsubscribe = self.subscribe_access(
                 self._handle_power_info_update
             )
+        self._start_polling()
+
+    def _start_polling(self) -> None:
+        """Schedule periodic state (and battery) polls to keep HA in sync.
+
+        The light only reports its state when asked, so without polling a
+        physical knob change never reaches HA and the battery stays unknown.
+        Each poll is a harmless status request that never changes the light, and
+        is skipped while the shared transport is not ready (e.g. at startup).
+        """
+
+        from homeassistant.helpers.event import async_track_time_interval
+
+        if self._state_poll_unsub is None:
+            self._state_poll_unsub = async_track_time_interval(
+                self.hass,
+                self._async_poll_state,
+                timedelta(seconds=DEFAULT_STATE_POLL_INTERVAL_SECONDS),
+            )
+        if self.battery_capable and self._battery_poll_unsub is None:
+            self._battery_poll_unsub = async_track_time_interval(
+                self.hass,
+                self._async_poll_battery,
+                timedelta(seconds=DEFAULT_BATTERY_POLL_INTERVAL_SECONDS),
+            )
+
+    async def _async_poll_state(self, _now: Any = None) -> None:
+        """Pull the light's current state so manual (knob) changes sync to HA."""
+
+        await self._async_send_poll(status_request_payloads(), kind="state")
+
+    async def _async_poll_battery(self, _now: Any = None) -> None:
+        """Pull the light's battery/power report for the battery sensor."""
+
+        await self._async_send_poll(power_status_request_payloads(), kind="battery")
+
+    async def _async_send_poll(self, payloads: list[bytes], *, kind: str) -> None:
+        """Send a status request without touching user-facing command diagnostics."""
+
+        if not self._mesh_network.is_ready:
+            return
+        try:
+            await self._mesh_network.async_send_siduses(
+                payloads,
+                node_address=self._node_address,
+                fixture_name=self.name,
+                fixture_mac=self.ble_mac,
+                first_payload_delay=0.0,
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Sidus %s poll failed light=%s error=%r", kind, self.name, err
+            )
+            self.async_start_warmup("poll_failure")
 
     def async_start_warmup(self, reason: str) -> None:
         """Start or wake background warm-up without blocking HA startup."""
@@ -889,6 +948,12 @@ class AmaranSidusClient:
         if self._battery_unsubscribe is not None:
             self._battery_unsubscribe()
             self._battery_unsubscribe = None
+        if self._state_poll_unsub is not None:
+            self._state_poll_unsub()
+            self._state_poll_unsub = None
+        if self._battery_poll_unsub is not None:
+            self._battery_poll_unsub()
+            self._battery_poll_unsub = None
         await self._mesh_network.async_close()
 
     async def async_request_power_status(self, *, capture_seconds: float = 10.0) -> None:

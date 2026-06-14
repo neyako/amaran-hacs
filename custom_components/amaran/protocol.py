@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from .const import (
     MAX_COLOR_TEMP_KELVIN,
     MIN_COLOR_TEMP_KELVIN,
+    PROXY_FILTER_TYPE_REJECT,
     SIDUS_ACCESS_OPCODE,
 )
 
@@ -406,6 +407,72 @@ def build_mesh_proxy_pdu(
     ivi_nid = ((iv_index & 1) << 7) | keys.nid
     network_pdu = bytes([ivi_nid]) + obfuscated_header + encrypted_network
     return b"\x00" + network_pdu
+
+
+def build_proxy_filter_pdu(
+    *,
+    net_key: bytes,
+    app_key: bytes,
+    src: int,
+    seq: int,
+    iv_index: int,
+    filter_type: int = PROXY_FILTER_TYPE_REJECT,
+    addresses: tuple[int, ...] = (),
+) -> bytes:
+    """Encrypt a Bluetooth Mesh Proxy Configuration PDU (Mesh Profile 6.5).
+
+    With ``filter_type`` set to the reject list and no ``addresses``, the proxy
+    forwards every mesh message to the client. The integration needs this so the
+    light's status and battery reports reach Home Assistant; the proxy's default
+    empty accept list otherwise drops every message addressed to ``src``.
+    """
+
+    if not 0 <= src <= 0xFFFF:
+        raise ValueError("mesh source address must be a 16-bit value")
+    if not 0 <= seq <= 0xFFFFFF:
+        raise ValueError("mesh sequence must be a 24-bit value")
+    if not 0 <= iv_index <= 0xFFFFFFFF:
+        raise ValueError("IV index must be a 32-bit value")
+
+    keys = derive_mesh_keys(net_key, app_key)
+
+    if addresses:
+        # Add Addresses To Filter (opcode 0x01).
+        config = bytes([0x01]) + b"".join(
+            int(addr).to_bytes(2, "big") for addr in addresses
+        )
+    else:
+        # Set Filter Type (opcode 0x00).
+        config = bytes([0x00, filter_type & 0xFF])
+
+    seq_bytes = seq.to_bytes(3, "big")
+    src_bytes = src.to_bytes(2, "big")
+    iv_bytes = iv_index.to_bytes(4, "big")
+
+    # Proxy Configuration is a control message (CTL=1) with TTL 0. It uses the
+    # proxy nonce (type 0x03), a 64-bit NetMIC, and an unassigned destination.
+    ctl_ttl = 0x80
+    proxy_nonce = b"\x03\x00" + seq_bytes + src_bytes + b"\x00\x00" + iv_bytes
+    network_plaintext = b"\x00\x00" + config
+    encrypted_network = AESCCM(keys.encryption_key, tag_length=8).encrypt(
+        proxy_nonce, network_plaintext, None
+    )
+
+    privacy_random = encrypted_network[:7]
+    pecb = _aes_ecb(keys.privacy_key, b"\x00" * 5 + iv_bytes + privacy_random)
+    clear_header = bytes([ctl_ttl]) + seq_bytes + src_bytes
+    obfuscated_header = bytes(clear_header[i] ^ pecb[i] for i in range(6))
+
+    ivi_nid = ((iv_index & 1) << 7) | keys.nid
+    network_pdu = bytes([ivi_nid]) + obfuscated_header + encrypted_network
+    # Proxy PDU type 0x02 = Proxy Configuration.
+    return b"\x02" + network_pdu
+
+
+def is_proxy_filter_status(proxy_pdu: bytes) -> bool:
+    """Return true for a Proxy Configuration Filter Status PDU (type 0x02)."""
+
+    return len(proxy_pdu) >= 1 and (proxy_pdu[0] & 0x3F) == 0x02
 
 
 def decode_mesh_proxy_access(

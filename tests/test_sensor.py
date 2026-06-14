@@ -96,9 +96,9 @@ class TransportSensorUxTest(unittest.TestCase):
 
 
 class BatterySensorTest(unittest.TestCase):
-    def test_battery_sensor_is_diagnostic_and_disabled_by_default(self) -> None:
+    def test_battery_sensor_is_diagnostic_and_enabled_by_default(self) -> None:
         self.assertEqual(AmaranSidusBatterySensor._attr_entity_category.value, "diagnostic")
-        self.assertFalse(AmaranSidusBatterySensor._attr_entity_registry_enabled_default)
+        self.assertTrue(AmaranSidusBatterySensor._attr_entity_registry_enabled_default)
         self.assertEqual(AmaranSidusBatterySensor._attr_device_class.value, "battery")
         self.assertEqual(AmaranSidusBatterySensor._attr_state_class.value, "measurement")
 

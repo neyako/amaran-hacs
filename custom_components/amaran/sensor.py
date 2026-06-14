@@ -122,7 +122,7 @@ class AmaranSidusBatterySensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Battery"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
+    _attr_entity_registry_enabled_default = True
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
