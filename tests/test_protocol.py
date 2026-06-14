@@ -2,15 +2,22 @@
 
 import unittest
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+
+from custom_components.amaran.const import PROXY_FILTER_TYPE_REJECT
 from custom_components.amaran.protocol import (
     access_payload,
     brightness_payload_percent,
+    build_proxy_filter_pdu,
     cct_payload_percent,
     decode_mesh_proxy_access,
     decode_sidus_power_info_payload,
     decode_sidus_status_payload,
+    derive_mesh_keys,
     hsi_payload,
     hsi_payload_ha,
+    is_proxy_filter_status,
     power_payload,
     power_status_request_payload,
     sidus_checksum,
@@ -259,6 +266,62 @@ class StatusPayloadTest(unittest.TestCase):
         self.assertIsNotNone(decoded)
         self.assertIsNotNone(decoded.sidus_power_info)
         self.assertEqual(decoded.sidus_power_info.battery_percentage, 53)
+
+
+class ProxyFilterTest(unittest.TestCase):
+    """Bluetooth Mesh proxy filter PDU (Mesh Profile 6.5) regressions."""
+
+    def test_set_filter_reject_pdu_round_trips(self) -> None:
+        pdu = build_proxy_filter_pdu(
+            net_key=NET_KEY, app_key=APP_KEY, src=0x000F, seq=100, iv_index=0
+        )
+        # Proxy PDU type 0x02 = Proxy Configuration.
+        self.assertTrue(is_proxy_filter_status(pdu))
+        ctl_ttl, seq, src, dst, config = _decrypt_proxy_filter(pdu)
+        self.assertEqual(ctl_ttl, 0x80)  # CTL=1, TTL=0
+        self.assertEqual(seq, 100)
+        self.assertEqual(src, 0x000F)
+        self.assertEqual(dst, 0x0000)
+        self.assertEqual(config, bytes([0x00, PROXY_FILTER_TYPE_REJECT]))
+
+    def test_add_addresses_pdu_round_trips(self) -> None:
+        pdu = build_proxy_filter_pdu(
+            net_key=NET_KEY,
+            app_key=APP_KEY,
+            src=0x000F,
+            seq=5,
+            iv_index=0,
+            addresses=(0x000F, 0xC000),
+        )
+        _ctl, _seq, _src, _dst, config = _decrypt_proxy_filter(pdu)
+        self.assertEqual(config, bytes([0x01, 0x00, 0x0F, 0xC0, 0x00]))
+
+    def test_is_proxy_filter_status_distinguishes_pdu_type(self) -> None:
+        self.assertTrue(is_proxy_filter_status(b"\x02\x03\x01\x00\x00"))
+        self.assertFalse(is_proxy_filter_status(b"\x00\x01\x02"))
+        self.assertFalse(is_proxy_filter_status(b""))
+
+
+def _decrypt_proxy_filter(pdu: bytes, iv_index: int = 0) -> tuple:
+    """Reverse build_proxy_filter_pdu to validate its structure."""
+
+    keys = derive_mesh_keys(NET_KEY, APP_KEY)
+    network_pdu = pdu[1:]
+    iv_bytes = iv_index.to_bytes(4, "big")
+    obfuscated = network_pdu[1:7]
+    encrypted = network_pdu[7:]
+    ecb = Cipher(algorithms.AES(keys.privacy_key), modes.ECB()).encryptor()
+    pecb = ecb.update(b"\x00" * 5 + iv_bytes + encrypted[:7]) + ecb.finalize()
+    clear = bytes(obfuscated[i] ^ pecb[i] for i in range(6))
+    ctl_ttl = clear[0]
+    seq = int.from_bytes(clear[1:4], "big")
+    src = int.from_bytes(clear[4:6], "big")
+    proxy_nonce = b"\x03\x00" + clear[1:4] + clear[4:6] + b"\x00\x00" + iv_bytes
+    plaintext = AESCCM(keys.encryption_key, tag_length=8).decrypt(
+        proxy_nonce, encrypted, None
+    )
+    dst = int.from_bytes(plaintext[:2], "big")
+    return ctl_ttl, seq, src, dst, plaintext[2:]
 
 
 def _power_info_payload(

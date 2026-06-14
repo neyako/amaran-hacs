@@ -19,7 +19,13 @@ from .const import (
     TRANSPORT_STATE_RECONNECTING,
     TRANSPORT_STATE_WARMING,
 )
-from .protocol import access_payload, build_mesh_proxy_pdu, decode_mesh_proxy_access
+from .protocol import (
+    access_payload,
+    build_mesh_proxy_pdu,
+    build_proxy_filter_pdu,
+    decode_mesh_proxy_access,
+    is_proxy_filter_status,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +76,8 @@ class SidusTransportMetrics:
     last_notification_time: float | None = None
     notification_count: int = 0
     notify_enabled: bool = False
+    proxy_filter_set: bool = False
+    filter_status_count: int = 0
     last_decoded_status: dict[str, Any] | None = None
     last_error: str | None = None
 
@@ -97,6 +105,8 @@ class SidusTransportMetrics:
             "last_notification_time": self.last_notification_time,
             "notification_count": self.notification_count,
             "notify_enabled": self.notify_enabled,
+            "proxy_filter_set": self.proxy_filter_set,
+            "filter_status_count": self.filter_status_count,
             "last_decoded_status": self.last_decoded_status,
             "last_error": self.last_error,
         }
@@ -402,7 +412,46 @@ class SidusBaseTransport:
         )
         proxy_out = _resolve_gatt_char(client, services, MESH_PROXY_OUT_UUID)
         await self._start_proxy_out_notify(client, proxy_out)
-        return proxy_in or MESH_PROXY_IN_UUID
+        write_target = proxy_in or MESH_PROXY_IN_UUID
+        await self._set_proxy_filter(client, write_target)
+        return write_target
+
+    async def _set_proxy_filter(self, client: Any, write_target: Any) -> None:
+        """Open the proxy filter so the light's status/battery reports reach us.
+
+        A freshly connected Bluetooth Mesh proxy starts with an empty accept
+        list and forwards nothing to the client. Setting the reject (deny) list
+        with no entries makes it forward every message, including the light's
+        status and battery reports addressed to our source address.
+        """
+
+        self._metrics.proxy_filter_set = False
+        # The proxy node (the light) tracks this sequence for our source
+        # address, so it must stay monotonic with the command writes that
+        # follow on this connection. _discover_proxy_in runs before any command
+        # sequence is reserved, keeping the filter PDU's sequence the lowest.
+        seq = self._reserve_sequences(1)[0]
+        await self._save_sequence()
+        pdu = build_proxy_filter_pdu(
+            net_key=self._settings.net_key,
+            app_key=self._settings.app_key,
+            src=self._settings.source_address,
+            seq=seq,
+            iv_index=self._settings.iv_index,
+        )
+        try:
+            await client.write_gatt_char(write_target, pdu, response=False)
+        except Exception as err:  # pragma: no cover - backend-specific
+            _LOGGER.debug("Sidus proxy filter set failed: %s", err)
+            return
+        self._metrics.proxy_filter_set = True
+        _LOGGER.debug(
+            "Sidus proxy filter set reject-list src=0x%04x seq=%s len=%s header=%s",
+            self._settings.source_address,
+            seq,
+            len(pdu),
+            pdu[:2].hex(),
+        )
 
     async def _start_proxy_out_notify(self, client: Any, proxy_out: Any | None) -> None:
         self._metrics.notify_enabled = False
@@ -422,6 +471,14 @@ class SidusBaseTransport:
         raw = bytes(data)
         self._metrics.notification_count += 1
         self._metrics.last_notification_time = time.time()
+        if is_proxy_filter_status(raw):
+            self._metrics.filter_status_count += 1
+            _LOGGER.debug(
+                "Sidus proxy filter status received len=%s raw=%s",
+                len(raw),
+                raw.hex(" "),
+            )
+            return
         decoded = decode_mesh_proxy_access(
             net_key=self._settings.net_key,
             app_key=self._settings.app_key,
@@ -632,11 +689,6 @@ class SidusTransientTransport(SidusBaseTransport):
 
         destination = self._settings.node_address if node_address is None else node_address
         async with self._sequence_manager.lock:
-            sequences = self._reserve_sequences(
-                len(sidus_payloads), node_address=destination
-            )
-            await self._save_sequence()
-
             client = None
             self._metrics.queue_depth = 0
             self._metrics.disconnect_ms = 0.0
@@ -644,8 +696,14 @@ class SidusTransientTransport(SidusBaseTransport):
                 self._set_state(TRANSPORT_STATE_RECONNECTING)
                 ble_device = await self._lookup_ble_device(connection_reused=False)
                 client = await self._connect_client(ble_device)
+                # Discover/connect first so the proxy filter is set (reserving
+                # the lowest sequence) before the command sequences below.
                 write_target = await self._discover_proxy_in(client)
                 self._set_state(TRANSPORT_STATE_PROXY_READY)
+                sequences = self._reserve_sequences(
+                    len(sidus_payloads), node_address=destination
+                )
+                await self._save_sequence()
                 await self._write_reserved(
                     client=client,
                     write_target=write_target,
@@ -831,12 +889,14 @@ class SidusPersistentTransport(SidusBaseTransport):
             return
 
         async with self._sequence_manager.lock:
+            # Connect first so a fresh connection sets the proxy filter (which
+            # reserves the lowest sequence) before the command sequences below.
+            client = await self._ensure_connected()
+            self._set_state(TRANSPORT_STATE_PROXY_READY)
             sequences = self._reserve_sequences(
                 len(request.sidus_payloads), node_address=request.node_address
             )
             await self._save_sequence()
-            client = await self._ensure_connected()
-            self._set_state(TRANSPORT_STATE_PROXY_READY)
             await self._write_reserved(
                 client=client,
                 write_target=self._write_target or MESH_PROXY_IN_UUID,

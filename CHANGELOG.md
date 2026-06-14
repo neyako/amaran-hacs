@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Sets a Bluetooth Mesh proxy filter (forward-all reject list) on every
+  connection so the light's status and battery reports actually reach Home
+  Assistant. Without it the proxy dropped every reply addressed to us, which is
+  why knob changes never synced and battery stayed unknown.
+- Polls each light's state every 30s and battery every 60s with harmless status
+  requests, so a physical knob change syncs back to Home Assistant and the
+  battery percentage stays current. Passive status notifications still apply
+  instantly when the light sends them.
+- Enables the battery sensor by default for battery-capable lights now that real
+  battery percentages are decoded.
+
 ## v0.3.0 - 2026-06-05
 
 - Fixes light availability so each light depends on its own BLE advertisement

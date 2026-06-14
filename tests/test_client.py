@@ -9,6 +9,27 @@ from typing import Any
 import unittest
 
 
+def _make_event_module() -> types.ModuleType:
+    """Build a homeassistant.helpers.event stub that records interval timers."""
+
+    event = types.ModuleType("homeassistant.helpers.event")
+
+    def async_track_time_interval(
+        hass: Any, action: Any, interval: Any, *a: Any, **k: Any
+    ) -> Any:
+        record = {"action": action, "interval": interval, "cancelled": False}
+
+        def _unsubscribe() -> None:
+            record["cancelled"] = True
+
+        record["unsubscribe"] = _unsubscribe
+        hass.tracked_intervals.append(record)
+        return _unsubscribe
+
+    event.async_track_time_interval = async_track_time_interval
+    return event
+
+
 def _install_homeassistant_stubs() -> None:
     homeassistant = types.ModuleType("homeassistant")
     config_entries = types.ModuleType("homeassistant.config_entries")
@@ -35,6 +56,7 @@ def _install_homeassistant_stubs() -> None:
     sys.modules["homeassistant.core"] = core
     sys.modules["homeassistant.helpers"] = helpers
     sys.modules["homeassistant.helpers.storage"] = storage
+    sys.modules["homeassistant.helpers.event"] = _make_event_module()
 
 
 _install_homeassistant_stubs()
@@ -46,10 +68,15 @@ from custom_components.amaran.client import (
     get_mesh_network,
     mesh_network_key,
 )
+from custom_components.amaran.commands import (
+    power_status_request_payloads,
+    status_request_payloads,
+)
 from custom_components.amaran.const import (
     COLOR_MODE_COLOR_TEMP,
     CONF_ADDRESS,
     CONF_APP_KEY,
+    CONF_BATTERY_CAPABLE,
     CONF_BLE_MAC,
     CONF_ENABLE_PRESENCE_CHECKING,
     CONF_FIXTURES,
@@ -372,6 +399,133 @@ class FakeTaskHass:
         if name is not None:
             self.setup_task_names.append(name)
         return asyncio.create_task(coroutine, name=name)
+
+
+class FakePollMesh:
+    def __init__(self, *, ready: bool = False, fail: bool = False) -> None:
+        self._ready = ready
+        self._fail = fail
+        self.sent: list[tuple[list[bytes], int]] = []
+        self.warmups: list[str] = []
+        self.closed = False
+
+    @property
+    def is_ready(self) -> bool:
+        return self._ready
+
+    async def async_send_siduses(
+        self,
+        payloads: list[bytes],
+        *,
+        node_address: int,
+        fixture_name: str,
+        fixture_mac: str | None,
+        first_payload_delay: float,
+    ) -> None:
+        if self._fail:
+            raise RuntimeError("boom")
+        self.sent.append((list(payloads), node_address))
+
+    def async_start_warmup(self, reason: str) -> None:
+        self.warmups.append(reason)
+
+    async def async_close(self) -> None:
+        self.closed = True
+
+
+class FakePollHass:
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {}
+        self.tracked_intervals: list[dict[str, Any]] = []
+        self.loop = None
+
+
+class PollTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        # Sibling test modules install and pop their own helpers.event stub via
+        # sys.modules, so re-assert ours before exercising the poll scheduler.
+        self._saved_event = sys.modules.get("homeassistant.helpers.event")
+        sys.modules["homeassistant.helpers.event"] = _make_event_module()
+
+    def tearDown(self) -> None:
+        if self._saved_event is not None:
+            sys.modules["homeassistant.helpers.event"] = self._saved_event
+        else:
+            sys.modules.pop("homeassistant.helpers.event", None)
+
+    def _make_client(
+        self, *, battery_capable: bool, mesh: FakePollMesh
+    ) -> AmaranSidusClient:
+        fixture = {
+            CONF_ADDRESS: "AA:BB:CC:DD:EE:01",
+            CONF_BLE_MAC: "AA:BB:CC:DD:EE:01",
+            CONF_NAME: "Ace 25c",
+            CONF_NET_KEY: NET_KEY,
+            CONF_APP_KEY: APP_KEY,
+            CONF_NODE_ADDRESS: 0x000B,
+            CONF_SOURCE_ADDRESS: 0x000F,
+            CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP],
+            CONF_BATTERY_CAPABLE: battery_capable,
+        }
+        entry = FakeEntry(dict(fixture))
+        return AmaranSidusClient(FakePollHass(), entry, fixture, mesh_network=mesh)
+
+    async def test_state_poll_sends_status_request_when_ready(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        await client._async_poll_state()
+        self.assertEqual(len(mesh.sent), 1)
+        payloads, node = mesh.sent[0]
+        self.assertEqual(node, 0x000B)
+        self.assertEqual(payloads, status_request_payloads())
+
+    async def test_battery_poll_sends_power_request_when_ready(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        await client._async_poll_battery()
+        self.assertEqual(len(mesh.sent), 1)
+        payloads, _node = mesh.sent[0]
+        self.assertEqual(payloads, power_status_request_payloads())
+
+    async def test_poll_skips_when_transport_not_ready(self) -> None:
+        mesh = FakePollMesh(ready=False)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        await client._async_poll_state()
+        await client._async_poll_battery()
+        self.assertEqual(mesh.sent, [])
+
+    async def test_poll_failure_triggers_warmup(self) -> None:
+        mesh = FakePollMesh(ready=True, fail=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        await client._async_poll_state()
+        self.assertEqual(mesh.warmups, ["poll_failure"])
+
+    def test_start_polling_schedules_state_and_battery_for_battery_light(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        client._start_polling()
+        intervals = sorted(
+            record["interval"].total_seconds()
+            for record in client.hass.tracked_intervals
+        )
+        self.assertEqual(intervals, [30.0, 60.0])
+
+    def test_start_polling_schedules_state_only_for_non_battery_light(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=False, mesh=mesh)
+        client._start_polling()
+        self.assertEqual(len(client.hass.tracked_intervals), 1)
+        self.assertEqual(
+            client.hass.tracked_intervals[0]["interval"].total_seconds(), 30.0
+        )
+
+    async def test_disconnect_cancels_poll_timers(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        client._start_polling()
+        records = list(client.hass.tracked_intervals)
+        await client.async_disconnect()
+        self.assertTrue(records and all(record["cancelled"] for record in records))
 
 
 async def _wait_for(predicate: Any) -> None:

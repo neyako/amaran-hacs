@@ -212,11 +212,15 @@ Do not use it for HA branding.
 
 ### Battery
 
-Battery support is not decoded yet.
+Battery is decoded from the Sidus `0x0A` power report and polled every 60s.
+
+The proxy only forwards these reports once the integration sets a Bluetooth Mesh
+proxy filter (forward-all) on connect; without that filter no report arrives.
 
 Current behavior:
 
-Battery sensors remain unavailable.
+Battery sensor is enabled by default for battery-capable lights and shows the
+real decoded percentage. It stays unavailable until a real packet is received.
 
 Do not invent values.
 
