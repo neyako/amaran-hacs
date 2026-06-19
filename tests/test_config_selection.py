@@ -27,6 +27,7 @@ from custom_components.amaran.const import (
 from custom_components.amaran.discovery import bluetooth_discovery_enabled
 from custom_components.amaran.fixtures import (
     fixture_device_identifier,
+    fixture_entries_for_selection,
     fixture_entry_data,
     fixture_for_unique_id,
     fixture_selection_choices,
@@ -106,6 +107,83 @@ class FixtureSelectionTest(unittest.TestCase):
         self.assertEqual(len(data[CONF_PROXY_CANDIDATES]), 2)
         self.assertNotIn(CONF_FIXTURE_CATALOG, data)
         self.assertNotIn(CONF_FIXTURES, data)
+
+    def test_selection_fan_out_returns_entry_per_selected_in_catalog_order(
+        self,
+    ) -> None:
+        ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
+        pano = _fixture("Pano", "Pano 60c", "AA:BB:CC:DD:EE:02", 0x000C)
+        sixty = _fixture("60x", "60x S", "AA:BB:CC:DD:EE:03", 0x000D)
+        import_data = {
+            CONF_FIXTURE_CATALOG: [ace, pano, sixty],
+            CONF_FIXTURES: [ace, pano, sixty],
+            CONF_SOURCE_ADDRESS: 0x000F,
+        }
+
+        entries = fixture_entries_for_selection(
+            import_data,
+            [ace, pano, sixty],
+            [fixture_unique_id(pano), fixture_unique_id(ace)],
+        )
+
+        self.assertEqual([entry[CONF_NAME] for entry in entries], ["Ace", "Pano"])
+        for entry in entries:
+            self.assertNotIn(CONF_FIXTURE_CATALOG, entry)
+            self.assertNotIn(CONF_FIXTURES, entry)
+
+    def test_selection_fan_out_skips_already_configured(self) -> None:
+        ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
+        pano = _fixture("Pano", "Pano 60c", "AA:BB:CC:DD:EE:02", 0x000C)
+        sixty = _fixture("60x", "60x S", "AA:BB:CC:DD:EE:03", 0x000D)
+        import_data = {
+            CONF_FIXTURE_CATALOG: [ace, pano, sixty],
+            CONF_FIXTURES: [ace, pano, sixty],
+        }
+
+        entries = fixture_entries_for_selection(
+            import_data,
+            [ace, pano, sixty],
+            [
+                fixture_unique_id(ace),
+                fixture_unique_id(pano),
+                fixture_unique_id(sixty),
+            ],
+            skip_ids=frozenset({fixture_unique_id(ace)}),
+        )
+
+        self.assertEqual([entry[CONF_NAME] for entry in entries], ["Pano", "60x"])
+
+    def test_selection_fan_out_dedupes_repeated_ids(self) -> None:
+        ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
+        pano = _fixture("Pano", "Pano 60c", "AA:BB:CC:DD:EE:02", 0x000C)
+        import_data = {
+            CONF_FIXTURE_CATALOG: [ace, pano],
+            CONF_FIXTURES: [ace, pano],
+        }
+
+        entries = fixture_entries_for_selection(
+            import_data,
+            [ace, pano],
+            [
+                fixture_unique_id(ace),
+                fixture_unique_id(ace),
+                fixture_unique_id(pano),
+            ],
+        )
+
+        self.assertEqual([entry[CONF_NAME] for entry in entries], ["Ace", "Pano"])
+
+    def test_selection_fan_out_empty_selection_returns_empty(self) -> None:
+        ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
+        import_data = {
+            CONF_FIXTURE_CATALOG: [ace],
+            CONF_FIXTURES: [ace],
+        }
+
+        self.assertEqual(
+            fixture_entries_for_selection(import_data, [ace], []),
+            [],
+        )
 
     def test_device_identifier_prefers_fixture_mac(self) -> None:
         ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)

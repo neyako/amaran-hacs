@@ -28,7 +28,7 @@ from .const import (
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
     CONF_SEQUENCE,
-    CONF_SELECTED_FIXTURE,
+    CONF_SELECTED_FIXTURE_IDS,
     CONF_SETUP_METHOD,
     CONF_SOURCE_ADDRESS,
     CONF_TTL,
@@ -54,8 +54,7 @@ from .const import (
 from .fixtures import (
     FixtureImport,
     default_desktop_db_path,
-    fixture_for_unique_id,
-    fixture_entry_data,
+    fixture_entries_for_selection,
     fixture_selection_choices,
     fixture_unique_id,
     light_capability_names,
@@ -362,36 +361,53 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_fixture(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Select the first fixture from an imported mesh catalog."""
+        """Select one or more lights from an imported mesh catalog."""
 
         data = self._pending_import
         if data is None:
             return await self.async_step_import()
 
         catalog = list(data[CONF_FIXTURE_CATALOG])
-        choices = fixture_selection_choices(catalog)
+        configured = frozenset(self._async_current_ids())
+        choices = {
+            fixture_id: label
+            for fixture_id, label in fixture_selection_choices(catalog).items()
+            if fixture_id not in configured
+        }
+        if not choices:
+            return self.async_abort(reason="already_configured")
+
+        placeholders = {
+            "light_count": str(len(choices)),
+            "source": str(data.get(CONF_IMPORT_PATH) or "pasted JSON"),
+            "detected_lights": _detected_light_summary(catalog),
+        }
+
         if user_input is not None:
-            fixture = fixture_for_unique_id(
-                catalog, str(user_input[CONF_SELECTED_FIXTURE])
+            selected_ids = list(user_input.get(CONF_SELECTED_FIXTURE_IDS) or [])
+            entries = fixture_entries_for_selection(
+                data, catalog, selected_ids, skip_ids=configured
             )
-            if fixture is None:
+            if not entries:
                 return self.async_show_form(
                     step_id="select_fixture",
                     data_schema=self._fixture_selection_schema(choices),
-                    errors={CONF_SELECTED_FIXTURE: "invalid_input"},
+                    errors={CONF_SELECTED_FIXTURE_IDS: "invalid_input"},
+                    description_placeholders=placeholders,
                 )
-            entry_data = fixture_entry_data(data, fixture)
-            return await self._async_create_fixture_entry(entry_data)
+            for extra in entries[1:]:
+                await self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": config_entries.SOURCE_IMPORT},
+                    data=extra,
+                )
+            return await self._async_create_fixture_entry(entries[0])
 
         return self.async_show_form(
             step_id="select_fixture",
             data_schema=self._fixture_selection_schema(choices),
             errors={},
-            description_placeholders={
-                "light_count": str(len(catalog)),
-                "source": str(data.get(CONF_IMPORT_PATH) or "pasted JSON"),
-                "detected_lights": _detected_light_summary(catalog),
-            },
+            description_placeholders=placeholders,
         )
 
     async def _async_create_fixture_entry(
@@ -405,13 +421,14 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @callback
     def _fixture_selection_schema(self, choices: dict[str, str]) -> vol.Schema:
-        default_fixture = next(iter(choices))
+        from homeassistant.helpers import config_validation as cv
+
         return vol.Schema(
             {
                 vol.Required(
-                    CONF_SELECTED_FIXTURE,
-                    default=default_fixture,
-                ): vol.In(choices)
+                    CONF_SELECTED_FIXTURE_IDS,
+                    default=list(choices),
+                ): cv.multi_select(choices)
             }
         )
 

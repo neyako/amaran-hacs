@@ -240,6 +240,30 @@ def fixture_entry_data(
     return data
 
 
+def fixture_entries_for_selection(
+    import_data: dict[str, Any],
+    catalog: list[dict[str, Any]],
+    selected_ids: list[str],
+    *,
+    skip_ids: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Return one entry-data dict per selected light, in catalog order.
+
+    Skips IDs in ``skip_ids`` (already-configured) and de-duplicates.
+    """
+
+    selected = set(selected_ids)
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for fixture in catalog:
+        fixture_id = fixture_unique_id(fixture)
+        if fixture_id not in selected or fixture_id in skip_ids or fixture_id in seen:
+            continue
+        seen.add(fixture_id)
+        entries.append(fixture_entry_data(import_data, fixture))
+    return entries
+
+
 def fixture_selection_choices(fixtures: list[dict[str, Any]]) -> dict[str, str]:
     """Return config-flow choices keyed by stable fixture ID."""
 

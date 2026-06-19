@@ -40,10 +40,10 @@
         }
       },
       "select_fixture": {
-        "title": "Select light",
-        "description": "Select one light from {light_count} lights found in {source}. This creates one independent integration entry. Repeat Add integration to add another light.\n\nDetected lights:\n{detected_lights}",
+        "title": "Select lights",
+        "description": "Select one or more lights from {light_count} found in {source}. Each selected light becomes its own independent integration entry.\n\nDetected lights:\n{detected_lights}",
         "data": {
-          "selected_fixture": "Light"
+          "selected_fixture_ids": "Lights"
         }
       },
       "manual": {
