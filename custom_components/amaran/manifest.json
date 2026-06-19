@@ -1,7 +1,7 @@
 {
   "domain": "amaran",
   "name": "amaran",
-  "codeowners": [],
+  "codeowners": ["@neyako"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
   "integration_type": "device",
