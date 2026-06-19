@@ -10,8 +10,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
 from .const import (
-    MAX_COLOR_TEMP_KELVIN,
-    MIN_COLOR_TEMP_KELVIN,
     PROXY_FILTER_TYPE_REJECT,
     SIDUS_ACCESS_OPCODE,
 )
