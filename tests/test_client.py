@@ -500,6 +500,22 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         await client._async_poll_state()
         self.assertEqual(mesh.warmups, ["poll_failure"])
 
+    async def test_status_update_is_dispatched_on_the_event_loop(self) -> None:
+        fixture = _fixtures()[-1]
+        hass = types.SimpleNamespace(data={}, loop=asyncio.get_running_loop())
+        entry = FakeEntry({CONF_FIXTURES: [fixture], CONF_SOURCE_ADDRESS: 0x000F})
+        mesh = SidusMeshNetwork(hass, entry, [fixture])
+        client = AmaranSidusClient(hass, entry, fixture, mesh_network=mesh)
+        received: list[dict[str, Any]] = []
+        status = {"source_address": client.node_address, "power": True}
+
+        client.subscribe_status(received.append)
+        mesh._handle_status_update(status)
+
+        self.assertEqual(received, [])
+        await asyncio.sleep(0)
+        self.assertEqual(received, [status])
+
     def test_start_polling_schedules_state_and_battery_for_battery_light(self) -> None:
         mesh = FakePollMesh(ready=True)
         client = self._make_client(battery_capable=True, mesh=mesh)

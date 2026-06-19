@@ -359,8 +359,12 @@ class SidusMeshNetwork:
 
     def _handle_status_update(self, status: dict[str, Any]) -> None:
         source_address = int(status.get("source_address", 0))
+        loop = getattr(getattr(self, "hass", None), "loop", None)
         for callback in tuple(self._status_callbacks.get(source_address, ())):
-            callback(status)
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(callback, status)
+            else:
+                callback(status)
 
     def _handle_access_update(self, message: dict[str, Any]) -> None:
         for callback in tuple(self._access_callbacks):
