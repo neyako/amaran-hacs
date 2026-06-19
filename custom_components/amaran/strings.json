@@ -10,7 +10,7 @@
       },
       "import": {
         "title": "Import amaran lights",
-        "description": "Export your Amaran lights from the desktop app, then paste the JSON here. On macOS, run: curl -fsSL https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/scripts/export_amaran.py | python3 - | pbcopy",
+        "description": "Export your Amaran lights from the desktop app, then paste the JSON here. The one-line export command is in the project README.",
         "data": {
           "import_method": "Import method"
         }

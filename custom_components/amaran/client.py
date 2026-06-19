@@ -210,6 +210,7 @@ class SidusMeshNetwork:
             proxy_candidates=self._proxy_candidates,
             status_callback=self._handle_status_update,
             access_callback=self._handle_access_update,
+            disconnect_callback=self._handle_ble_disconnect,
         )
         self._transport = SidusPersistentTransport(
             settings=settings,
@@ -369,6 +370,11 @@ class SidusMeshNetwork:
     def _handle_access_update(self, message: dict[str, Any]) -> None:
         for callback in tuple(self._access_callbacks):
             callback(message)
+
+    def _handle_ble_disconnect(self) -> None:
+        """Reconnect the shared proxy after an unexpected BLE link drop."""
+
+        self.async_start_warmup("ble_disconnect")
 
     async def async_setup(self) -> None:
         """Load sequence state and start shared transport worker once."""

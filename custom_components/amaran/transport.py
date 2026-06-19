@@ -31,6 +31,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _INTER_PAYLOAD_DELAY = 0.05
 _CONNECT_TIMEOUT = 10.0
+# A healthy proxy answers every status poll, so once we have ever heard back,
+# this much silence after later writes means the proxy stopped relaying and the
+# link has gone stale even though Bleak still reports it connected.
+_WATCHDOG_SILENCE_SECONDS = 90.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,7 @@ class SidusTransportSettings:
     proxy_candidates: tuple[str, ...] = ()
     status_callback: Callable[[dict[str, Any]], None] | None = None
     access_callback: Callable[[dict[str, Any]], None] | None = None
+    disconnect_callback: Callable[[], None] | None = None
 
 
 @dataclass
@@ -62,6 +67,7 @@ class SidusTransportMetrics:
     connected: bool = False
     queue_depth: int = 0
     reconnect_count: int = 0
+    watchdog_reconnect_count: int = 0
     connect_ms: float = 0.0
     bluetooth_lookup_ms: float = 0.0
     service_discovery_ms: float = 0.0
@@ -90,6 +96,7 @@ class SidusTransportMetrics:
             "connected": self.connected,
             "queue_depth": self.queue_depth,
             "reconnect_count": self.reconnect_count,
+            "watchdog_reconnect_count": self.watchdog_reconnect_count,
             "bluetooth_lookup_ms": round(self.bluetooth_lookup_ms, 1),
             "connect_ms": round(self.connect_ms, 1),
             "service_discovery_ms": round(self.service_discovery_ms, 1),
@@ -142,6 +149,7 @@ class SidusBaseTransport:
         self._last_write: dict[str, Any] | None = None
         self._failed_proxy_addresses: set[str] = set()
         self._proxy_out_target: Any | None = None
+        self._ever_received_notification = False
 
     @property
     def connected(self) -> bool:
@@ -195,6 +203,24 @@ class SidusBaseTransport:
     def _set_state(self, state: str, error: str | None = None) -> None:
         self._metrics.state = state
         self._metrics.last_error = error
+
+    def _on_ble_disconnect(self, client: Any) -> None:
+        """Wake a reconnect when the backend reports an unexpected link drop.
+
+        Disconnects we trigger ourselves null ``_client`` before disconnecting,
+        so an identity mismatch here means the drop was unexpected (out of range,
+        ESPHome proxy reboot, supervision timeout). The shared mesh runtime then
+        reconnects instead of waiting on the slow connection monitor.
+        """
+
+        if client is not getattr(self, "_client", None):
+            return
+        _LOGGER.debug("Sidus BLE link dropped unexpectedly; scheduling reconnect")
+        if self._metrics.state != TRANSPORT_STATE_FAILED:
+            self._set_state(TRANSPORT_STATE_DISCONNECTED)
+        callback = self._settings.disconnect_callback
+        if callback is not None:
+            callback()
 
     def _reserve_sequences(
         self, count: int, *, node_address: int | None = None
@@ -375,6 +401,7 @@ class SidusBaseTransport:
                 ble_device,
                 self._settings.name,
                 timeout=_CONNECT_TIMEOUT,
+                disconnected_callback=self._on_ble_disconnect,
             )
         except Exception:
             self._failed_proxy_addresses.add(str(ble_device.address).lower())
@@ -477,6 +504,7 @@ class SidusBaseTransport:
         raw = bytes(data)
         self._metrics.notification_count += 1
         self._metrics.last_notification_time = time.time()
+        self._ever_received_notification = True
         if is_proxy_filter_status(raw):
             self._metrics.filter_status_count += 1
             _LOGGER.debug(
@@ -801,10 +829,15 @@ class SidusPersistentTransport(SidusBaseTransport):
     async def async_close(self) -> None:
         """Stop worker and close the cached BLE session."""
 
-        if self._worker_task is not None:
+        worker = self._worker_task
+        self._worker_task = None
+        if worker is not None:
             await self._queue.put(None)
-            await self._worker_task
-            self._worker_task = None
+            # Wait on the task as a future rather than re-driving its coroutine:
+            # teardown must not re-raise a worker crash, and under
+            # IsolatedAsyncioTestCase on Python < 3.13 the worker coroutine can
+            # be finalized early, which makes ``await worker`` raise.
+            await asyncio.wait({worker})
         await self._disconnect_cached()
 
     async def async_send_siduses(
@@ -914,12 +947,39 @@ class SidusPersistentTransport(SidusBaseTransport):
                 first_payload_delay=request.first_payload_delay,
             )
 
+    def _link_silent_too_long(self) -> bool:
+        """Return true when a still-"connected" proxy stopped relaying replies.
+
+        Writes are sent without response, so a stale proxy link looks healthy:
+        every write succeeds locally while the light never reacts. The light
+        answers every status poll on a working link, so once we have ever heard
+        back, a long silence after later writes means the link is dead and must
+        be torn down even though ``is_connected`` is still True.
+        """
+
+        if not self._ever_received_notification:
+            return False
+        last_write = self._metrics.last_write_time
+        last_notification = self._metrics.last_notification_time
+        if last_write is None or last_notification is None:
+            return False
+        return (last_write - last_notification) > _WATCHDOG_SILENCE_SECONDS
+
     async def _ensure_connected(self) -> Any:
         if self.connected:
-            if self._last_bluetooth_device is not None:
-                self._last_bluetooth_device["connection_reused"] = True
-            self._set_state(TRANSPORT_STATE_PROXY_READY)
-            return self._client
+            if not self._link_silent_too_long():
+                if self._last_bluetooth_device is not None:
+                    self._last_bluetooth_device["connection_reused"] = True
+                self._set_state(TRANSPORT_STATE_PROXY_READY)
+                return self._client
+            self._metrics.watchdog_reconnect_count += 1
+            _LOGGER.warning(
+                "Sidus proxy link silent for >%.0fs (last_write=%s last_rx=%s); "
+                "forcing reconnect lights via fresh proxy connection",
+                _WATCHDOG_SILENCE_SECONDS,
+                self._metrics.last_write_time,
+                self._metrics.last_notification_time,
+            )
 
         if self._client is not None or self._has_connected:
             self._metrics.reconnect_count += 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 import unittest
 
@@ -10,6 +11,7 @@ from custom_components.amaran.const import (
     PROXY_SELECTION_AUTO,
     TRANSPORT_MODE_PERSISTENT,
     TRANSPORT_MODE_TRANSIENT,
+    TRANSPORT_STATE_DISCONNECTED,
     TRANSPORT_STATE_FAILED,
     TRANSPORT_STATE_PROXY_READY,
 )
@@ -104,7 +106,11 @@ class FakeBluetoothModule:
 
 class FakePersistentTransport(SidusPersistentTransport):
     def __init__(
-        self, *, sequence_manager: FakeSequenceManager, hass: object | None = None
+        self,
+        *,
+        sequence_manager: FakeSequenceManager,
+        hass: object | None = None,
+        disconnect_callback: object | None = None,
     ) -> None:
         self.save_count = 0
         self.lookup_count = 0
@@ -112,7 +118,7 @@ class FakePersistentTransport(SidusPersistentTransport):
         self.discover_count = 0
         self.clients: list[FakeBleClient] = []
         super().__init__(
-            settings=_settings(hass=hass),
+            settings=_settings(hass=hass, disconnect_callback=disconnect_callback),
             sequence_manager=sequence_manager,
             save_sequence=self._save_sequence,
             mode=TRANSPORT_MODE_PERSISTENT,
@@ -331,6 +337,106 @@ class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
         await transport.async_close()
 
 
+class WatchdogReconnectTest(unittest.IsolatedAsyncioTestCase):
+    async def test_silent_link_forces_reconnect_on_next_send(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        transport = FakePersistentTransport(sequence_manager=sequence_manager)
+        await transport.async_setup()
+
+        await transport.async_send_siduses([power_payload(True)])
+        self.assertEqual(transport.connect_count, 1)
+
+        # The light has answered before, then the proxy went silent: later
+        # writes with no inbound notification for longer than the window, while
+        # the cached client still reports connected (a zombie link).
+        transport._ever_received_notification = True
+        now = time.time()
+        transport._metrics.last_notification_time = now - 1000
+        transport._metrics.last_write_time = now
+        self.assertTrue(transport.clients[0].is_connected)
+
+        await transport.async_send_siduses([brightness_payload_percent(25)])
+
+        self.assertEqual(transport.connect_count, 2)
+        self.assertEqual(transport.metrics["watchdog_reconnect_count"], 1)
+        self.assertEqual(transport.metrics["reconnect_count"], 1)
+        self.assertEqual(len(transport.clients[1].writes), 1)
+
+        await transport.async_close()
+
+    async def test_recent_reply_keeps_warm_connection(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        transport = FakePersistentTransport(sequence_manager=sequence_manager)
+        await transport.async_setup()
+
+        await transport.async_send_siduses([power_payload(True)])
+        transport._ever_received_notification = True
+        now = time.time()
+        transport._metrics.last_notification_time = now
+        transport._metrics.last_write_time = now
+
+        await transport.async_send_siduses([brightness_payload_percent(25)])
+
+        self.assertEqual(transport.connect_count, 1)
+        self.assertEqual(transport.metrics["watchdog_reconnect_count"], 0)
+
+        await transport.async_close()
+
+    async def test_no_prior_reply_never_trips_watchdog(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        transport = FakePersistentTransport(sequence_manager=sequence_manager)
+        await transport.async_setup()
+
+        await transport.async_send_siduses([power_payload(True)])
+        # Never heard back, but the window has "elapsed": without a known-good
+        # reply we cannot tell a dead link from a quiet one, so do not churn.
+        transport._metrics.last_notification_time = time.time() - 1000
+        transport._metrics.last_write_time = time.time()
+
+        await transport.async_send_siduses([brightness_payload_percent(25)])
+
+        self.assertEqual(transport.connect_count, 1)
+        self.assertEqual(transport.metrics["watchdog_reconnect_count"], 0)
+
+        await transport.async_close()
+
+
+class DisconnectCallbackTest(unittest.IsolatedAsyncioTestCase):
+    async def test_unexpected_drop_invokes_disconnect_callback(self) -> None:
+        events: list[str] = []
+        transport = FakePersistentTransport(
+            sequence_manager=FakeSequenceManager(),
+            disconnect_callback=lambda: events.append("reconnect"),
+        )
+        await transport.async_setup()
+        await transport.async_send_siduses([power_payload(True)])
+
+        transport._on_ble_disconnect(transport.clients[0])
+
+        self.assertEqual(events, ["reconnect"])
+        self.assertEqual(transport.metrics["state"], TRANSPORT_STATE_DISCONNECTED)
+
+        await transport.async_close()
+
+    async def test_intentional_disconnect_does_not_invoke_callback(self) -> None:
+        events: list[str] = []
+        transport = FakePersistentTransport(
+            sequence_manager=FakeSequenceManager(),
+            disconnect_callback=lambda: events.append("reconnect"),
+        )
+        await transport.async_setup()
+        await transport.async_send_siduses([power_payload(True)])
+        stale_client = transport.clients[0]
+
+        await transport._disconnect_cached()
+        # A late backend callback for the client we already dropped is ignored.
+        transport._on_ble_disconnect(stale_client)
+
+        self.assertEqual(events, [])
+
+        await transport.async_close()
+
+
 class TransientTransportTest(unittest.IsolatedAsyncioTestCase):
     async def test_transient_keeps_one_shot_lifecycle(self) -> None:
         sequence_manager = FakeSequenceManager()
@@ -394,6 +500,7 @@ class NotificationCaptureTest(unittest.TestCase):
             ttl=7,
         )
 
+        self.assertFalse(transport._ever_received_notification)
         transport._handle_proxy_out_notification(None, proxy_pdu)
 
         self.assertEqual(len(messages), 1)
@@ -401,6 +508,8 @@ class NotificationCaptureTest(unittest.TestCase):
         self.assertEqual(messages[0]["destination_address"], 0x000F)
         self.assertEqual(messages[0]["opcode"], 0x26)
         self.assertEqual(messages[0]["sidus_payload"], power_status_request_payload())
+        self.assertTrue(transport._ever_received_notification)
+        self.assertIsNotNone(transport.metrics["last_notification_time"])
 
 
 class AutoProxySelectionTest(unittest.TestCase):
@@ -453,6 +562,7 @@ def _settings(
     proxy_selection: str = "manual",
     proxy_candidates: tuple[str, ...] = (),
     access_callback: object | None = None,
+    disconnect_callback: object | None = None,
 ) -> SidusTransportSettings:
     return SidusTransportSettings(
         hass=object() if hass is None else hass,
@@ -468,6 +578,7 @@ def _settings(
         proxy_address="AA:BB:CC:DD:EE:FF",
         proxy_candidates=proxy_candidates,
         access_callback=access_callback,
+        disconnect_callback=disconnect_callback,
     )
 
 
