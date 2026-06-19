@@ -313,6 +313,22 @@ class LightStateRestoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(light.color_temp_kelvin, 4300)
         self.assertFalse(light.assumed_state)
 
+    async def test_unchanged_state_is_not_resaved(self) -> None:
+        client = FakeClient()
+        light = _light_for_restore(client, None)
+        await light.async_added_to_hass()
+
+        baseline = len(FakeStore.saved)
+        await light._async_save_persistent_state()
+        await light._async_save_persistent_state()
+
+        self.assertEqual(len(FakeStore.saved) - baseline, 1)
+
+        light._brightness = 10 if light._brightness != 10 else 20
+        await light._async_save_persistent_state()
+
+        self.assertEqual(len(FakeStore.saved) - baseline, 2)
+
 
 class LightIconTest(unittest.TestCase):
     def test_rgb_fixture_uses_palette_icon(self) -> None:
