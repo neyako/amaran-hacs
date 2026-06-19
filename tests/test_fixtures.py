@@ -168,6 +168,37 @@ class FixtureImportTest(unittest.TestCase):
             [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
         )
 
+    def test_paste_json_import_skips_motorized_accessory(self) -> None:
+        imported = load_fixture_import_json(
+            json.dumps(
+                {
+                    "net_key": NET_KEY,
+                    "app_key": APP_KEY,
+                    "fixtures": [
+                        {
+                            "name": "Ace",
+                            "mac_address": "AA:BB:CC:DD:EE:01",
+                            "node_address": 11,
+                            "model": "Ace 25c",
+                        },
+                        {
+                            "name": "Yoke",
+                            "mac_address": "AA:BB:CC:DD:EE:02",
+                            "node_address": 12,
+                            "model": "Motorized Yoke",
+                        },
+                    ],
+                }
+            )
+        )
+
+        self.assertEqual(len(imported.fixtures), 1)
+        self.assertEqual(imported.fixtures[0][CONF_NAME], "Ace")
+        self.assertEqual(
+            imported.skipped,
+            [{"name": "Yoke", "code": None, "reason": "unsupported"}],
+        )
+
     def test_invalid_paste_json_has_redacted_useful_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "import_json"):
             load_fixture_import_json("{not json")
@@ -230,6 +261,45 @@ class FixtureCapabilityTest(unittest.TestCase):
             profile = detect_fixture_profile(code=code, name=name)
             self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS))
             self.assertTrue(profile.supports_hs)
+
+    def test_full_color_models_classify_as_rgb(self) -> None:
+        for name in (
+            "MT Pro",
+            "INFINIMAT 4",
+            "INFINIMAT 16",
+            "INFINIBAR PB3",
+            "INFINIBAR PB6",
+            "INFINIBAR PB12",
+        ):
+            with self.subTest(name=name):
+                profile = detect_fixture_profile(name=name)
+
+                self.assertEqual(
+                    profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
+                )
+
+    def test_verge_and_go_stay_cct_only(self) -> None:
+        for name in ("amaran Verge", "amaran Verge Max", "amaran Go"):
+            with self.subTest(name=name):
+                profile = detect_fixture_profile(name=name)
+
+                self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
+
+    def test_motorized_accessories_are_unsupported(self) -> None:
+        for name in ("Motorized Yoke", "Motorized F14 Fresnel"):
+            with self.subTest(name=name):
+                profile = detect_fixture_profile(name=name)
+
+                self.assertFalse(profile.supported)
+                self.assertEqual(profile.color_modes, ())
+
+    def test_bundled_catalog_loads_and_is_non_empty(self) -> None:
+        from custom_components.amaran.product_catalog import product_catalog
+
+        catalog = product_catalog()
+
+        self.assertGreaterEqual(len(catalog), 78)
+        self.assertTrue(all(p.name or p.hex_code for p in catalog))
 
     def test_product_catalog_matches_by_product_id(self) -> None:
         profile = detect_fixture_profile(product_id=91)

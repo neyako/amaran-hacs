@@ -22,6 +22,7 @@ from custom_components.amaran.const import (
     CONF_PROXY_ADDRESS,
     CONF_SELECTED_FIXTURE_IDS,
     CONF_SOURCE_ADDRESS,
+    CONF_SUPPORTED_COLOR_MODES,
 )
 from custom_components.amaran.discovery import bluetooth_discovery_enabled
 from custom_components.amaran.fixtures import (
@@ -158,7 +159,34 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(migrated)
         self.assertTrue(entry.data[CONF_BATTERY_CAPABLE])
-        self.assertEqual(entry.minor_version, 2)
+        self.assertEqual(entry.minor_version, 3)
+
+    async def test_existing_entry_recomputes_stale_color_modes(self) -> None:
+        entry = SimpleNamespace(
+            entry_id="verge-max",
+            data={
+                CONF_APP_KEY: APP_KEY,
+                CONF_BLE_MAC: "AA:BB:CC:DD:EE:03",
+                CONF_MODEL: "amaran Verge Max",
+                CONF_NAME: "Verge Max",
+                CONF_NET_KEY: NET_KEY,
+                CONF_NODE_ADDRESS: 0x000D,
+                CONF_SUPPORTED_COLOR_MODES: ["brightness"],
+            },
+            options={},
+            title="Verge Max",
+            unique_id="aa_bb_cc_dd_ee_03",
+            version=2,
+            minor_version=2,
+        )
+        manager = FakeConfigEntries([entry])
+        hass = SimpleNamespace(config_entries=manager)
+
+        migrated = await async_migrate_entry(hass, entry)
+
+        self.assertTrue(migrated)
+        self.assertEqual(entry.data[CONF_SUPPORTED_COLOR_MODES], ["color_temp"])
+        self.assertEqual(entry.minor_version, 3)
 
     async def test_grouped_entry_splits_into_fixture_entries(self) -> None:
         ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
@@ -191,7 +219,7 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.title, "Ace")
         self.assertEqual(entry.unique_id, fixture_unique_id(ace))
         self.assertEqual(entry.version, 2)
-        self.assertEqual(entry.minor_version, 2)
+        self.assertEqual(entry.minor_version, 3)
         self.assertEqual(entry.data[CONF_PROXY_ADDRESS], "")
         self.assertNotIn(CONF_FIXTURE_CATALOG, entry.data)
         self.assertNotIn(CONF_FIXTURES, entry.data)

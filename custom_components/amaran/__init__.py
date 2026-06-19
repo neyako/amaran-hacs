@@ -17,6 +17,7 @@ from .const import (
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
     CONF_SELECTED_FIXTURE_IDS,
+    CONF_SUPPORTED_COLOR_MODES,
     DEFAULT_POWER_STATUS_CAPTURE_SECONDS,
     DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
     DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
@@ -33,6 +34,7 @@ from .fixtures import (
     fixture_entry_data,
     fixture_unique_id,
     is_battery_capable_light,
+    recompute_color_modes,
 )
 from .product_catalog import product_catalog
 
@@ -48,7 +50,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.version > 2:
         return False
-    if entry.version == 2 and entry.minor_version >= 2:
+    if entry.version == 2 and entry.minor_version >= 3:
         return True
 
     data = dict(entry.data)
@@ -92,7 +94,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         title=str(primary_data[CONF_NAME]),
         unique_id=fixture_unique_id(primary_data),
         version=2,
-        minor_version=2,
+        minor_version=3,
     )
 
     if grouped:
@@ -118,6 +120,9 @@ def _fixture_entry_data_with_capabilities(
 
     data = fixture_entry_data(import_data, fixture)
     data.setdefault(CONF_BATTERY_CAPABLE, is_battery_capable_light(data))
+    recomputed = recompute_color_modes(data)
+    if recomputed:
+        data[CONF_SUPPORTED_COLOR_MODES] = list(recomputed)
     return data
 
 
