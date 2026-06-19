@@ -24,7 +24,9 @@ class UserFacingStringTest(unittest.TestCase):
         self.assertNotIn("proxy", values)
         self.assertNotIn("transport", values)
         self.assertIn("export your amaran lights from the desktop app", values)
-        self.assertIn("raw.githubusercontent.com/neyako/amaran-hacs", values)
+        # hassfest forbids URLs in step descriptions; the export command lives in
+        # the README, and the import step points users there.
+        self.assertIn("export command is in the project readme", values)
         self.assertIn("do not share the exported json publicly", values)
 
     def test_readme_prose_does_not_say_fixture(self) -> None:

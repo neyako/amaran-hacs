@@ -4,6 +4,7 @@
   "codeowners": ["@neyako"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/neyako/amaran-hacs",
   "integration_type": "device",
   "iot_class": "local_push",
   "requirements": [],

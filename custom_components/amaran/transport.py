@@ -829,10 +829,15 @@ class SidusPersistentTransport(SidusBaseTransport):
     async def async_close(self) -> None:
         """Stop worker and close the cached BLE session."""
 
-        if self._worker_task is not None:
+        worker = self._worker_task
+        self._worker_task = None
+        if worker is not None:
             await self._queue.put(None)
-            await self._worker_task
-            self._worker_task = None
+            # Wait on the task as a future rather than re-driving its coroutine:
+            # teardown must not re-raise a worker crash, and under
+            # IsolatedAsyncioTestCase on Python < 3.13 the worker coroutine can
+            # be finalized early, which makes ``await worker`` raise.
+            await asyncio.wait({worker})
         await self._disconnect_cached()
 
     async def async_send_siduses(
