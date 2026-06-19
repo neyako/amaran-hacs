@@ -544,6 +544,7 @@ class AmaranSidusClient:
         self._desired_color_temp_kelvin: int | None = None
         self._desired_hs_color: tuple[float, float] | None = None
         self._desired_active_color_mode: str = COLOR_MODE_COLOR_TEMP
+        self._desired_green_magenta: int = 0
         self._battery_percentage: int | None = _optional_percentage(
             self.data.get(CONF_BATTERY_PERCENTAGE)
         )
@@ -778,6 +779,12 @@ class AmaranSidusClient:
         """Return cached active color mode."""
 
         return self._desired_active_color_mode
+
+    @property
+    def green_magenta(self) -> int:
+        """Return cached green/magenta point applied to CCT commands."""
+
+        return self._desired_green_magenta
 
     @property
     def connected(self) -> bool:
@@ -1039,14 +1046,26 @@ class AmaranSidusClient:
         self._desired_power = False
 
     async def async_set_brightness_cct(
-        self, *, brightness: int, kelvin: int, power_on: bool = False
+        self,
+        *,
+        brightness: int,
+        kelvin: int,
+        power_on: bool = False,
+        gm: int | None = None,
     ) -> None:
         """Send the Telink CCT payload carrying brightness and CCT."""
 
         brightness = _clamp_brightness(brightness)
         kelvin = _clamp_kelvin(kelvin)
+        gm_value = (
+            self._desired_green_magenta if gm is None else _clamp_green_magenta(gm)
+        )
         sidus_intensity = round(brightness / 255 * 1000)
-        payload = brightness_cct_payload(brightness=brightness, kelvin=kelvin)
+        payload = brightness_cct_payload(
+            brightness=brightness,
+            kelvin=kelvin,
+            gm=gm_value,
+        )
         _LOGGER.debug(
             "Combined Sidus request brightness_ha=%s cct_kelvin=%s "
             "sidus_intensity=%s sidus=%s access=%s power_on=%s",
@@ -1063,6 +1082,7 @@ class AmaranSidusClient:
                 brightness=brightness,
                 kelvin=kelvin,
                 power_on=power_on,
+                gm=gm_value,
             ),
             first_payload_delay=_POWER_SETTLE_DELAY if power_on else 0.0,
         )
@@ -1071,6 +1091,7 @@ class AmaranSidusClient:
         self._desired_brightness = brightness
         self._desired_color_temp_kelvin = kelvin
         self._desired_active_color_mode = COLOR_MODE_COLOR_TEMP
+        self._desired_green_magenta = gm_value
 
     async def async_set_brightness(
         self, *, brightness: int, power_on: bool = False
@@ -1107,6 +1128,30 @@ class AmaranSidusClient:
             brightness=brightness,
             kelvin=kelvin,
             power_on=power_on,
+        )
+
+    def set_green_magenta_cached(self, gm: int) -> None:
+        """Seed the optimistic green/magenta point without sending a command."""
+
+        self._desired_green_magenta = _clamp_green_magenta(gm)
+
+    async def async_set_green_magenta(self, gm: int) -> None:
+        """Store green/magenta point; re-send CCT only when already on."""
+
+        self._desired_green_magenta = _clamp_green_magenta(gm)
+        if not (self._desired_power and self.supports_color_temp):
+            return
+        if self._desired_active_color_mode != COLOR_MODE_COLOR_TEMP:
+            return
+        if self._desired_color_temp_kelvin is None:
+            return
+        await self.async_set_brightness_cct(
+            brightness=(
+                self._desired_brightness
+                if self._desired_brightness is not None
+                else 255
+            ),
+            kelvin=self._desired_color_temp_kelvin,
         )
 
     async def async_set_hsi(
@@ -1508,6 +1553,10 @@ def _clamp_brightness(brightness: int) -> int:
 
 def _clamp_kelvin(kelvin: int) -> int:
     return max(MIN_COLOR_TEMP_KELVIN, min(MAX_COLOR_TEMP_KELVIN, int(kelvin)))
+
+
+def _clamp_green_magenta(value: Any) -> int:
+    return max(-10, min(10, int(value)))
 
 
 def _clamp_hs(hs_color: tuple[float, float]) -> tuple[float, float]:

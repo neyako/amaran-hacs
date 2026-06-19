@@ -191,7 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
-    platforms = (Platform.LIGHT, Platform.SENSOR)
+    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER)
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
     _migrate_fixture_device_identifier(hass, entry, fixtures[0])
     from .sensor import async_disable_transport_sensors
@@ -303,7 +303,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     from homeassistant.const import Platform
 
-    platforms = (Platform.LIGHT, Platform.SENSOR)
+    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
         clients = hass.data[DOMAIN].pop(entry.entry_id, None) or []

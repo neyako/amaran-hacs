@@ -72,6 +72,7 @@ from custom_components.amaran.commands import (
     power_status_request_payloads,
     status_request_payloads,
 )
+from custom_components.amaran.protocol import cct_payload_ha
 from custom_components.amaran.const import (
     COLOR_MODE_COLOR_TEMP,
     CONF_ADDRESS,
@@ -408,6 +409,9 @@ class FakePollMesh:
         self.sent: list[tuple[list[bytes], int]] = []
         self.warmups: list[str] = []
         self.closed = False
+        self.proxy_address = "AA:BB:CC:DD:EE:01"
+        self.proxy_selection = PROXY_SELECTION_AUTO
+        self.transport_metrics: dict[str, Any] = {"state": TRANSPORT_STATE_PROXY_READY}
 
     @property
     def is_ready(self) -> bool:
@@ -438,6 +442,56 @@ class FakePollHass:
         self.data: dict[str, Any] = {}
         self.tracked_intervals: list[dict[str, Any]] = []
         self.loop = None
+
+
+class GreenMagentaClientTest(unittest.IsolatedAsyncioTestCase):
+    async def test_set_green_magenta_resends_cct_with_offset_when_on(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+        client.set_cached_state(
+            power=True,
+            brightness=128,
+            kelvin=4000,
+            active_color_mode=COLOR_MODE_COLOR_TEMP,
+        )
+
+        await client.async_set_green_magenta(6)
+
+        self.assertEqual(
+            mesh.sent[-1][0],
+            [cct_payload_ha(brightness=128, kelvin=4000, gm=6)],
+        )
+
+    async def test_set_green_magenta_does_not_send_when_off(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+
+        await client.async_set_green_magenta(6)
+
+        self.assertEqual(mesh.sent, [])
+        self.assertEqual(client.green_magenta, 6)
+
+    async def test_brightness_cct_uses_stored_green_magenta(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+        client.set_green_magenta_cached(-4)
+
+        await client.async_set_cct(brightness=200, kelvin=5000)
+
+        self.assertEqual(
+            mesh.sent[-1][0],
+            [cct_payload_ha(brightness=200, kelvin=5000, gm=-4)],
+        )
+
+    async def test_green_magenta_clamped_to_range(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+
+        await client.async_set_green_magenta(99)
+        self.assertEqual(client.green_magenta, 10)
+
+        await client.async_set_green_magenta(-99)
+        self.assertEqual(client.green_magenta, -10)
 
 
 class PollTest(unittest.IsolatedAsyncioTestCase):
@@ -550,6 +604,22 @@ async def _wait_for(predicate: Any) -> None:
             return
         await asyncio.sleep(0)
     raise AssertionError("condition not reached")
+
+
+def _make_cct_client(mesh: FakePollMesh) -> AmaranSidusClient:
+    fixture = {
+        CONF_ADDRESS: "AA:BB:CC:DD:EE:01",
+        CONF_BLE_MAC: "AA:BB:CC:DD:EE:01",
+        CONF_NAME: "Ace 25c",
+        CONF_NET_KEY: NET_KEY,
+        CONF_APP_KEY: APP_KEY,
+        CONF_NODE_ADDRESS: 0x000B,
+        CONF_SOURCE_ADDRESS: 0x000F,
+        CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP],
+        CONF_BATTERY_CAPABLE: False,
+    }
+    entry = FakeEntry(dict(fixture))
+    return AmaranSidusClient(FakePollHass(), entry, fixture, mesh_network=mesh)
 
 
 def _fixtures() -> list[dict[str, Any]]:

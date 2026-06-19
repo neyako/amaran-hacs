@@ -74,6 +74,33 @@ class CctPayloadTest(unittest.TestCase):
             bytes.fromhex("31000000004001234b82"),
         )
 
+    def test_cct_payload_gm_zero_matches_neutral_capture(self) -> None:
+        self.assertEqual(
+            cct_payload_percent(percent=30, kelvin=5600, gm=0),
+            bytes.fromhex("31000000004001234b82"),
+        )
+
+    def test_cct_payload_gm_offset_changes_bytes(self) -> None:
+        neutral = cct_payload_percent(percent=30, kelvin=5600, gm=0)
+        green = cct_payload_percent(percent=30, kelvin=5600, gm=5)
+        magenta = cct_payload_percent(percent=30, kelvin=5600, gm=-5)
+
+        self.assertNotEqual(green, neutral)
+        self.assertNotEqual(magenta, neutral)
+        self.assertNotEqual(green, magenta)
+
+    def test_cct_status_decode_ignores_gm(self) -> None:
+        status = decode_sidus_status_payload(
+            cct_payload_percent(percent=30, kelvin=5600, gm=7),
+            source_address=0x000B,
+            destination_address=0x000F,
+            sequence=1,
+        )
+
+        self.assertIsNotNone(status)
+        self.assertEqual(status.color_temp_kelvin, 5600)
+        self.assertEqual(status.color_mode, "color_temp")
+
     def test_cct_6500k_80_percent_matches_reference(self) -> None:
         self.assertEqual(
             cct_payload_percent(percent=80, kelvin=6500),

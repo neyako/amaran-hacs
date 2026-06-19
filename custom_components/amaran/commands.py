@@ -21,18 +21,18 @@ def brightness_payloads(*, brightness: int, power_on: bool = False) -> list[byte
     return [payload]
 
 
-def brightness_cct_payload(*, brightness: int, kelvin: int) -> bytes:
+def brightness_cct_payload(*, brightness: int, kelvin: int, gm: int = 0) -> bytes:
     """Build the CCT payload that carries both brightness and CCT."""
 
-    return cct_payload_ha(brightness=brightness, kelvin=kelvin)
+    return cct_payload_ha(brightness=brightness, kelvin=kelvin, gm=gm)
 
 
 def cct_payloads(
-    *, brightness: int, kelvin: int, power_on: bool = False
+    *, brightness: int, kelvin: int, power_on: bool = False, gm: int = 0
 ) -> list[bytes]:
     """Build CCT payloads, optionally waking the light first."""
 
-    payload = brightness_cct_payload(brightness=brightness, kelvin=kelvin)
+    payload = brightness_cct_payload(brightness=brightness, kelvin=kelvin, gm=gm)
     if power_on:
         return [power_payload(True), payload]
     return [payload]
@@ -58,11 +58,16 @@ def hsi_payloads(
 
 
 def brightness_cct_payloads(
-    *, brightness: int, kelvin: int, power_on: bool = False
+    *, brightness: int, kelvin: int, power_on: bool = False, gm: int = 0
 ) -> list[bytes]:
     """Compatibility wrapper for callers that set brightness and CCT together."""
 
-    return cct_payloads(brightness=brightness, kelvin=kelvin, power_on=power_on)
+    return cct_payloads(
+        brightness=brightness,
+        kelvin=kelvin,
+        power_on=power_on,
+        gm=gm,
+    )
 
 
 def power_on_payloads() -> list[bytes]:
