@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.4.5 - 2026-06-19
+
+- Resolves exported light models and capabilities from the product catalog by
+  product ID, code, or name, so Verge Max exports as a CCT light instead of
+  `Unknown`.
+- Treats legacy `model: "Unknown"` imports as missing model data so the light
+  name can recover the correct catalog profile.
+- Preserves color temperature when imported capabilities contain both
+  brightness and color temperature.
+
 ## v0.4.0 - 2026-06-19
 
 ### Full-color light support
