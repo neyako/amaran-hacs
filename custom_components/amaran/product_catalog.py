@@ -103,6 +103,12 @@ def lookup_product(
             if product.hex_code == normalized_code:
                 return product
 
+    exact_name = _normalize_name(name, strip_marketing=False)
+    if exact_name:
+        for product in products:
+            if _normalize_name(product.name, strip_marketing=False) == exact_name:
+                return product
+
     normalized_name = _normalize_name(name)
     if normalized_name:
         for product in products:
@@ -184,12 +190,13 @@ def _is_daylight_name(normalized: str) -> bool:
     return compact.endswith("d")
 
 
-def _normalize_name(value: Any) -> str:
+def _normalize_name(value: Any, *, strip_marketing: bool = True) -> str:
     text = str(value or "").lower()
     text = re.sub(r"[^0-9a-z]+", " ", text)
     tokens = [token for token in text.split() if token not in {"amaran", "aputure"}]
-    while tokens and tokens[-1] in _TRAILING_MARKETING_TOKENS:
-        tokens.pop()
+    if strip_marketing:
+        while tokens and tokens[-1] in _TRAILING_MARKETING_TOKENS:
+            tokens.pop()
     return " ".join(tokens)
 
 

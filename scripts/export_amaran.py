@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable, Mapping
+from functools import lru_cache
 import glob
 import json
 import os
@@ -13,6 +14,8 @@ import re
 import sqlite3
 import sys
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
 DESKTOP_DB_GLOB = (
     "~/Library/Application Support/amaran Desktop/*_secure_id/amaran.db"
@@ -22,16 +25,21 @@ DESKTOP_DB_FALLBACK_GLOB = (
 )
 DEFAULT_SOURCE_ADDRESS = "0x000f"
 DEFAULT_IV_INDEX = 0
-
-CAPABILITIES_BICOLOR = ["brightness", "color_temp"]
-CAPABILITIES_COLOR = ["brightness", "color_temp", "hs"]
-
-CODE_MODELS = {
-    "400O5": "100x",
-    "400M5": "60x S",
-    "400U5": "Ace 25c",
-    "400W5": "Pano 60c",
-}
+PRODUCT_ID_COLUMNS = ("product_id", "productId", "productID", "pid")
+PRODUCT_JSON_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "custom_components"
+    / "amaran"
+    / "product.json"
+)
+DESKTOP_PRODUCT_JSON_PATH = Path(
+    "/Applications/amaran Desktop.app/Contents/Resources/config/product.json"
+)
+PRODUCT_JSON_URL = (
+    "https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/"
+    "custom_components/amaran/product.json"
+)
+TRAILING_MARKETING_TOKENS = {"ii", "iii", "iv", "pro", "max", "s"}
 
 
 class ExportError(RuntimeError):
@@ -171,6 +179,11 @@ def load_fixture_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         for column in ("uuid", "mac_address", "code", "name", "node_address")
         if column in columns
     ]
+    product_id_column = next(
+        (column for column in PRODUCT_ID_COLUMNS if column in columns), None
+    )
+    if product_id_column is not None:
+        selected.append(f'"{product_id_column}" as product_id')
     order = " order by node_address" if "node_address" in columns else ""
     return conn.execute(f"select {', '.join(selected)} from fixtures{order}").fetchall()
 
@@ -190,13 +203,23 @@ def fixture_payload(row: sqlite3.Row) -> dict[str, Any] | None:
 
     name = str(row["name"] or "").strip() if "name" in row.keys() else ""
     code = str(row["code"] or "").strip() if "code" in row.keys() else ""
-    model = infer_model(name=name, code=code)
+    product_id = row["product_id"] if "product_id" in row.keys() else None
+    product = lookup_catalog_product(product_id=product_id, code=code, name=name)
+    model = str(product.get("name") or "Unknown") if product else "Unknown"
+    capabilities = (
+        catalog_capabilities(model)
+        if product
+        else [
+            "brightness",
+            "color_temp",
+        ]
+    )
     return {
         "name": name or f"Amaran {model}",
         "model": model,
         "mac_address": mac,
         "node_address": node_address,
-        "capabilities": infer_capabilities(model),
+        "capabilities": capabilities,
     }
 
 
@@ -217,34 +240,95 @@ def mesh_contains_fixture(mesh: sqlite3.Row, fixture: sqlite3.Row) -> bool:
     return any(token and token in ordered for token in tokens)
 
 
-def infer_model(*, name: str, code: str) -> str:
+@lru_cache(maxsize=1)
+def product_catalog() -> tuple[dict[str, Any], ...]:
+    """Load the same product catalog bundled with the integration."""
+
+    payload: Any = None
+    for path in (PRODUCT_JSON_PATH, DESKTOP_PRODUCT_JSON_PATH):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except (OSError, json.JSONDecodeError):
+            continue
+    if payload is None:
+        try:
+            with urlopen(PRODUCT_JSON_URL, timeout=10) as response:  # noqa: S310
+                payload = json.loads(response.read().decode("utf-8"))
+        except (OSError, URLError, UnicodeDecodeError, json.JSONDecodeError) as err:
+            raise ExportError("product catalog could not be loaded") from err
+    if not isinstance(payload, list):
+        raise ExportError("product catalog has invalid data")
+    return tuple(row for row in payload if isinstance(row, dict))
+
+
+def lookup_catalog_product(
+    *, product_id: Any = None, code: str = "", name: str = ""
+) -> dict[str, Any] | None:
+    """Match catalog product by id, code, then name."""
+
+    parsed_product_id = optional_int(product_id)
+    products = product_catalog()
+    if parsed_product_id is not None:
+        for product in products:
+            if optional_int(product.get("id")) == parsed_product_id:
+                return product
+
     normalized_code = code.strip().upper()
-    if normalized_code in CODE_MODELS:
-        return CODE_MODELS[normalized_code]
+    if normalized_code:
+        for product in products:
+            if str(product.get("hex") or "").strip().upper() == normalized_code:
+                return product
 
-    text = normalize_model_text(name)
-    if "ace 25c" in text:
-        return "Ace 25c"
-    if "pano 60c" in text:
-        return "Pano 60c"
-    if re.search(r"\b100x(?:\s+s)?\b", text):
-        return "100x"
-    if re.search(r"\b60x\s+s\b", text):
-        return "60x S"
-    return "Unknown"
+    exact_name = normalize_product_name(name, strip_marketing=False)
+    if exact_name:
+        for product in products:
+            if (
+                normalize_product_name(product.get("name"), strip_marketing=False)
+                == exact_name
+            ):
+                return product
+
+    normalized_name = normalize_product_name(name)
+    if normalized_name:
+        for product in products:
+            product_name = normalize_product_name(product.get("name"))
+            if product_name and (
+                product_name in normalized_name or normalized_name in product_name
+            ):
+                return product
+    return None
 
 
-def infer_capabilities(model: str) -> list[str]:
-    text = normalize_model_text(model)
-    if "ace 25c" in text or "pano 60c" in text:
-        return list(CAPABILITIES_COLOR)
-    if re.search(r"\b100x(?:\s+s)?\b", text) or re.search(r"\b60x\s+s\b", text):
-        return list(CAPABILITIES_BICOLOR)
-    return list(CAPABILITIES_BICOLOR)
+def catalog_capabilities(name: str) -> list[str]:
+    """Map a catalog product name to import capabilities."""
+
+    normalized = normalize_product_name(name)
+    if re.search(r"\b(?:motorized|yoke|fresnel)\b", normalized):
+        return []
+    compact = normalized.replace(" ", "")
+    is_rgb = (
+        re.search(r"\b(?:nova|mc|mt|infinimat|infinibar)\b", normalized) is not None
+        or re.search(r"(?:ace|pano)?\d+c$", compact) is not None
+        or re.search(r"(?:p|f|pt|t)\d+c$", compact) is not None
+        or compact.endswith("c")
+    )
+    if is_rgb:
+        return ["brightness", "color_temp", "hs"]
+    if compact.endswith("d"):
+        return ["brightness"]
+    return ["brightness", "color_temp"]
 
 
-def normalize_model_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value.replace("-", " ")).strip().lower()
+def normalize_product_name(value: Any, *, strip_marketing: bool = True) -> str:
+    """Normalize catalog names for matching and capability classification."""
+
+    text = re.sub(r"[^0-9a-z]+", " ", str(value or "").lower())
+    tokens = [token for token in text.split() if token not in {"amaran", "aputure"}]
+    if strip_marketing:
+        while tokens and tokens[-1] in TRAILING_MARKETING_TOKENS:
+            tokens.pop()
+    return " ".join(tokens)
 
 
 def normalize_key(value: Any) -> str:

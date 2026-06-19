@@ -136,20 +136,21 @@ def detect_fixture_profile(
 ) -> FixtureProfile:
     """Classify a fixture into supported HA color modes."""
 
+    model_name = _known_model_name(model)
     product = lookup_product(
         product_id=product_id,
         code=code,
-        name=model or name,
+        name=model_name or name,
     )
     if product is not None:
         return FixtureProfile(product.name, product.color_modes)
 
-    text = _normalize_model_text(" ".join(value or "" for value in (model, name)))
+    text = _normalize_model_text(" ".join(value or "" for value in (model_name, name)))
     if text:
         modes = classify_product_name(text)
-        return FixtureProfile(str(model or name or "Unknown").strip(), modes)
+        return FixtureProfile(str(model_name or name or "Unknown").strip(), modes)
     return FixtureProfile(
-        str(model or code or "Unknown").strip() or "Unknown",
+        str(model_name or code or "Unknown").strip() or "Unknown",
         (COLOR_MODE_COLOR_TEMP,),
     )
 
@@ -157,10 +158,11 @@ def detect_fixture_profile(
 def supported_color_modes_for_fixture(data: dict[str, Any]) -> tuple[str, ...]:
     """Return final color modes from DB/import data with known-model overrides."""
 
+    model_name = _known_model_name(data.get(CONF_MODEL))
     product = lookup_product(
         product_id=data.get(CONF_PRODUCT_ID),
         code=data.get(CONF_FIXTURE_CODE),
-        name=data.get(CONF_MODEL) or data.get(CONF_NAME),
+        name=model_name or data.get(CONF_NAME),
     )
     if product is not None:
         return product.color_modes
@@ -509,6 +511,11 @@ def _normalize_model_text(value: str) -> str:
     return re.sub(r"\s+", " ", value.replace("-", " ")).strip().lower()
 
 
+def _known_model_name(value: Any) -> str:
+    model = str(value or "").strip()
+    return "" if model.casefold() == "unknown" else model
+
+
 def _explicit_color_modes(raw: dict[str, Any]) -> tuple[str, ...]:
     value = (
         raw.get(CONF_SUPPORTED_COLOR_MODES)
@@ -528,8 +535,14 @@ def _explicit_color_modes(raw: dict[str, Any]) -> tuple[str, ...]:
     else:
         return ()
 
+    has_brightness = any(
+        token in {"brightness", "bright", "d", "daylight"} for token in tokens
+    )
+    has_color_temp = any(
+        token in {"color_temp", "color_temperature", "cct", "ct"} for token in tokens
+    )
     modes = [COLOR_MODE_COLOR_TEMP]
-    if any(token in {"brightness", "bright", "d", "daylight"} for token in tokens):
+    if has_brightness and not has_color_temp:
         modes = [COLOR_MODE_BRIGHTNESS]
     if any(token in {"hs", "hsi", "rgb", "color", "colour", "c"} for token in tokens):
         modes.append(COLOR_MODE_HS)

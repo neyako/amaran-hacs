@@ -341,6 +341,43 @@ class FixtureCapabilityTest(unittest.TestCase):
         self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
         self.assertFalse(profile.supports_hs)
 
+    def test_legacy_unknown_verge_import_uses_catalog_name(self) -> None:
+        imported = load_fixture_import_json(
+            json.dumps(
+                {
+                    "net_key": NET_KEY,
+                    "app_key": APP_KEY,
+                    "fixtures": [
+                        {
+                            "name": "amaran Verge Max",
+                            "model": "Unknown",
+                            "mac_address": "AA:BB:CC:DD:EE:07",
+                            "node_address": 15,
+                            "capabilities": ["brightness", "color_temp"],
+                        }
+                    ],
+                }
+            )
+        )
+        fixture = imported.fixtures[0]
+
+        self.assertEqual(fixture[CONF_MODEL], "amaran Verge Max")
+        self.assertEqual(fixture[CONF_SUPPORTED_COLOR_MODES], [COLOR_MODE_COLOR_TEMP])
+        self.assertEqual(
+            light_capability_names(fixture),
+            ("Brightness", "Color temperature"),
+        )
+
+    def test_explicit_brightness_and_color_temp_keeps_color_temp(self) -> None:
+        modes = supported_color_modes_for_fixture(
+            {
+                CONF_MODEL: "Mystery",
+                "capabilities": ["brightness", "color_temp"],
+            }
+        )
+
+        self.assertEqual(modes, (COLOR_MODE_COLOR_TEMP,))
+
     def test_stale_ace_entry_with_cct_only_still_gets_hs(self) -> None:
         modes = supported_color_modes_for_fixture(
             {

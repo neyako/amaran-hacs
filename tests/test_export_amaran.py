@@ -34,6 +34,17 @@ EXPORT = _load_export_module()
 
 
 class ExportAmaranTest(unittest.TestCase):
+    def test_catalog_resolves_verge_max_by_id_code_and_name(self) -> None:
+        for lookup in (
+            {"product_id": 105},
+            {"code": "400Z5"},
+            {"name": "amaran Verge Max"},
+        ):
+            with self.subTest(lookup=lookup):
+                product = EXPORT.lookup_catalog_product(**lookup)
+                self.assertIsNotNone(product)
+                self.assertEqual(product["name"], "amaran Verge Max")
+
     def test_windows_path_detection_checks_appdata_and_userprofile(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -106,21 +117,34 @@ class ExportAmaranTest(unittest.TestCase):
 
             self.assertEqual(
                 [fixture["model"] for fixture in payload["fixtures"]],
-                ["100x", "Pano 60c", "60x S", "Ace 25c"],
+                [
+                    "amaran 100x S",
+                    "amaran Pano 60c",
+                    "amaran 60x S",
+                    "amaran Ace 25c",
+                    "amaran Verge Max",
+                ],
             )
-            self.assertEqual(len(imported.fixtures), 4)
+            self.assertEqual(len(imported.fixtures), 5)
             self.assertEqual(
                 [fixture["name"] for fixture in imported.fixtures],
-                ["Key 100x S", "Pano", "60x S", "Ace"],
+                ["Key 100x S", "Pano", "60x S", "Ace", "Desk light"],
             )
             self.assertEqual(
                 [fixture["node_address"] for fixture in imported.fixtures],
-                [0x000B, 0x000C, 0x000D, 0x000E],
+                [0x000B, 0x000C, 0x000D, 0x000E, 0x000F],
             )
             self.assertNotIn("hs", imported.fixtures[0]["supported_color_modes"])
             self.assertIn("hs", imported.fixtures[1]["supported_color_modes"])
             self.assertNotIn("hs", imported.fixtures[2]["supported_color_modes"])
             self.assertIn("hs", imported.fixtures[3]["supported_color_modes"])
+            self.assertEqual(
+                imported.fixtures[4]["supported_color_modes"], ["color_temp"]
+            )
+            self.assertEqual(
+                payload["fixtures"][4]["capabilities"],
+                ["brightness", "color_temp"],
+            )
 
     def test_stdout_flag_writes_valid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,7 +165,7 @@ class ExportAmaranTest(unittest.TestCase):
             )
 
             payload = json.loads(result.stdout)
-            self.assertEqual(len(payload["fixtures"]), 4)
+            self.assertEqual(len(payload["fixtures"]), 5)
             self.assertEqual(result.stderr, "")
 
     def test_output_file_prints_friendly_message_without_keys(self) -> None:
@@ -171,7 +195,7 @@ class ExportAmaranTest(unittest.TestCase):
             self.assertNotIn(APP_KEY, result.stdout + result.stderr)
             self.assertEqual(
                 len(json.loads((root / "amaran-export.json").read_text())["fixtures"]),
-                4,
+                5,
             )
 
 
@@ -201,7 +225,8 @@ def _create_amaran_db(path: Path) -> None:
                 mac_address text,
                 code text,
                 name text,
-                node_address integer
+                node_address integer,
+                product_id integer
             )
             """
         )
@@ -216,14 +241,15 @@ def _create_amaran_db(path: Path) -> None:
         conn.executemany(
             """
             insert into fixtures
-                (uuid, mac_address, code, name, node_address)
-            values (?, ?, ?, ?, ?)
+                (uuid, mac_address, code, name, node_address, product_id)
+            values (?, ?, ?, ?, ?, ?)
             """,
             [
-                ("100x", "AA:BB:CC:DD:EE:01", "400O5", "Key 100x S", 0x000B),
-                ("pano", "AA:BB:CC:DD:EE:02", "400W5", "Pano", 0x000C),
-                ("60x", "AA:BB:CC:DD:EE:03", "400M5", "60x S", 0x000D),
-                ("ace", "AA:BB:CC:DD:EE:04", "400U5", "Ace", 0x000E),
+                ("100x", "AA:BB:CC:DD:EE:01", "400O5", "Key 100x S", 0x000B, None),
+                ("pano", "AA:BB:CC:DD:EE:02", "400W5", "Pano", 0x000C, None),
+                ("60x", "AA:BB:CC:DD:EE:03", "400M5", "60x S", 0x000D, None),
+                ("ace", "AA:BB:CC:DD:EE:04", "400U5", "Ace", 0x000E, None),
+                ("verge", "AA:BB:CC:DD:EE:05", "400Z5", "Desk light", 0x000F, 105),
             ],
         )
 
