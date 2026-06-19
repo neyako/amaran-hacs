@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.4.6 - 2026-06-19
+
+- Chooses the strongest reachable Amaran BLE proxy in automatic mode instead of
+  the first imported light, avoiding weak/stuck proxy connections that can leave
+  writes optimistic and status readback stale.
+
 ## v0.4.5 - 2026-06-19
 
 - Resolves exported light models and capabilities from the product catalog by

@@ -341,7 +341,13 @@ class SidusBaseTransport:
         if not reachable:
             return None, None
 
-        rssi, address, ble_device, service_info = reachable[0]
+        rssi, address, ble_device, service_info = max(
+            reachable,
+            key=lambda item: (
+                item[0] is not None,
+                item[0] if item[0] is not None else -999,
+            ),
+        )
         _LOGGER.debug(
             "Sidus auto BLE candidates=%s selected_ble_mac=%s selected_rssi=%s",
             [

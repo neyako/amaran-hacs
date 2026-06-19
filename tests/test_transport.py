@@ -404,7 +404,7 @@ class NotificationCaptureTest(unittest.TestCase):
 
 
 class AutoProxySelectionTest(unittest.TestCase):
-    def test_auto_proxy_selection_chooses_first_reachable_candidate(self) -> None:
+    def test_auto_proxy_selection_chooses_strongest_reachable_candidate(self) -> None:
         transport = SidusBaseTransport(
             settings=_settings(
                 proxy_selection=PROXY_SELECTION_AUTO,
@@ -419,10 +419,10 @@ class AutoProxySelectionTest(unittest.TestCase):
             FakeBluetoothModule()
         )
 
-        self.assertEqual(ble_device.address, "AA:BB:CC:00:00:01")
-        self.assertEqual(service_info.rssi, -70)
+        self.assertEqual(ble_device.address, "AA:BB:CC:00:00:02")
+        self.assertEqual(service_info.rssi, -42)
 
-    def test_unavailable_manual_proxy_falls_back_to_first_reachable(self) -> None:
+    def test_unavailable_manual_proxy_falls_back_to_strongest_reachable(self) -> None:
         transport = SidusBaseTransport(
             settings=_settings(
                 proxy_selection="manual",
@@ -437,8 +437,8 @@ class AutoProxySelectionTest(unittest.TestCase):
             FakeBluetoothModule()
         )
 
-        self.assertEqual(ble_device.address, "AA:BB:CC:00:00:01")
-        self.assertEqual(service_info.rssi, -70)
+        self.assertEqual(ble_device.address, "AA:BB:CC:00:00:02")
+        self.assertEqual(service_info.rssi, -42)
 
 
 async def _noop_save() -> None:
