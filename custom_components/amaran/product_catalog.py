@@ -28,6 +28,9 @@ _BATTERY_CAPABLE_PATTERNS = (
     re.compile(r"\bpt[124]c\b"),
     re.compile(r"\bpt\s*[124]c\b"),
 )
+_RGB_NAME_PATTERN = re.compile(
+    r"\b(?:nova|mc|mt|infinimat|infinibar)\b"
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,8 @@ def classify_product_name(name: Any) -> tuple[str, ...]:
     normalized = _normalize_name(name)
     if not normalized:
         return (COLOR_MODE_COLOR_TEMP,)
+    if is_accessory_name(normalized):
+        return ()
 
     if _is_rgb_name(normalized):
         return (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
@@ -140,10 +145,17 @@ def is_battery_capable_name(name: Any) -> bool:
     return any(pattern.search(normalized) or pattern.search(compact) for pattern in _BATTERY_CAPABLE_PATTERNS)
 
 
+def is_accessory_name(name: Any) -> bool:
+    """Return true for catalog rows that are mounts/accessories, not lights."""
+
+    normalized = _normalize_name(name)
+    if not normalized:
+        return False
+    return bool(re.search(r"\b(?:motorized|yoke|fresnel)\b", normalized))
+
+
 def _is_rgb_name(normalized: str) -> bool:
-    if "nova" in normalized:
-        return True
-    if re.search(r"\bmc(?:\s+pro)?\b", normalized):
+    if _RGB_NAME_PATTERN.search(normalized):
         return True
 
     compact = normalized.replace(" ", "")

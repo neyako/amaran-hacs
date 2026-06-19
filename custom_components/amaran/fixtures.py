@@ -49,12 +49,6 @@ _DESKTOP_DB_GLOB = (
 )
 _DESKTOP_DB_FALLBACK_GLOB = "~/Library/Application Support/amaran Desktop/*/amaran.db"
 
-_CODE_PROFILES = {
-    "400O5": ("100x", (COLOR_MODE_COLOR_TEMP,)),
-    "400M5": ("60x S", (COLOR_MODE_COLOR_TEMP,)),
-    "400U5": ("Ace 25c", (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)),
-    "400W5": ("Pano 60c", (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)),
-}
 _PRODUCT_ID_COLUMNS = (CONF_PRODUCT_ID, "productId", "productID", "pid")
 
 
@@ -150,11 +144,6 @@ def detect_fixture_profile(
     if product is not None:
         return FixtureProfile(product.name, product.color_modes)
 
-    normalized_code = str(code or "").strip().upper()
-    if normalized_code in _CODE_PROFILES:
-        profile_model, color_modes = _CODE_PROFILES[normalized_code]
-        return FixtureProfile(profile_model, color_modes)
-
     text = _normalize_model_text(" ".join(value or "" for value in (model, name)))
     if text:
         modes = classify_product_name(text)
@@ -189,6 +178,18 @@ def supported_color_modes_for_fixture(data: dict[str, Any]) -> tuple[str, ...]:
     if explicit_modes:
         return explicit_modes
     return profile.color_modes
+
+
+def recompute_color_modes(data: dict[str, Any]) -> tuple[str, ...]:
+    """Re-derive color modes from model identity, ignoring stored modes."""
+
+    identity = {
+        CONF_NAME: data.get(CONF_NAME),
+        CONF_MODEL: data.get(CONF_MODEL),
+        CONF_FIXTURE_CODE: data.get(CONF_FIXTURE_CODE),
+        CONF_PRODUCT_ID: data.get(CONF_PRODUCT_ID),
+    }
+    return supported_color_modes_for_fixture(identity)
 
 
 def fixture_unique_id(data: dict[str, Any]) -> str:
@@ -396,6 +397,10 @@ def _load_json_payload(payload: Any) -> tuple[list[dict[str, Any]], list[dict[st
             code=code,
             product_id=product_id,
         )
+        if not profile.supported:
+            skipped.append({"name": name, "code": code, "reason": "unsupported"})
+            continue
+
         color_modes = supported_color_modes_for_fixture(
             {
                 CONF_NAME: name,
