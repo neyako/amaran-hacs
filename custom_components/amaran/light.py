@@ -113,6 +113,7 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         )
         self._assumed_state = True
         self._state_store: AmaranLightStateStore | None = None
+        self._last_saved_state: tuple[FixtureCachedState, bool] | None = None
         self._status_unsubscribe: Callable[[], None] | None = None
         self._availability_unsubscribe: Callable[[], None] | None = None
         self._sync_attrs()
@@ -376,6 +377,10 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
     async def _async_save_persistent_state(self) -> None:
         if self._state_store is None:
             return
+        snapshot = (self._cached_state(), self._assumed_state)
+        if snapshot == self._last_saved_state:
+            return
+        self._last_saved_state = snapshot
         await self._state_store.async_save(
             self._cached_state(),
             assumed_state=self._assumed_state,
