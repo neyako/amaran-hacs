@@ -1,0 +1,187 @@
+# full unittest discover with CI dependency
+......................Sidus BLE connection disconnected; reconnecting lights=4 reason=reload
+......................Migrated grouped amaran entry to 2 light entries
+.....................................EEEEEEE.EEEEEEE...............................................................................Task exception was never retrieved
+future: <Task finished name='amaran_AA:BB:CC:DD:EE:FF_ble_worker' coro=<SidusPersistentTransport._worker_loop() done, defined at /Users/neyako/Documents/hacs-amaran/custom_components/amaran/transport.py:902> exception=RuntimeError('cannot reuse already awaited coroutine') created at /Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/tasks.py:420>
+source_traceback: Object created at (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/__main__.py", line 18, in <module>
+    main(module=None)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/main.py", line 105, in __init__
+    self.runTests()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/main.py", line 281, in runTests
+    self.result = testRunner.run(self.test)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/runner.py", line 240, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/case.py", line 690, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 132, in run
+    return super().run(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/case.py", line 634, in run
+    self._callTestMethod(testMethod)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 91, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 113, in _callMaybeAsync
+    return self._asyncioRunner.run(
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 678, in run_until_complete
+    self.run_forever()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 645, in run_forever
+    self._run_once()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 1991, in _run_once
+    handle._run()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_transport.py", line 254, in test_warmup_unavailable_sets_failed_state
+    await transport.async_setup()
+  File "/Users/neyako/Documents/hacs-amaran/custom_components/amaran/transport.py", line 832, in async_setup
+    self._worker_task = asyncio.create_task(coroutine, name=name)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/tasks.py", line 420, in create_task
+    task = loop.create_task(coro)
+RuntimeError: cannot reuse already awaited coroutine
+.......Sidus proxy link silent for >90s (last_write=1781958444.275043 last_rx=1781957444.275043); forcing reconnect lights via fresh proxy connection
+......
+======================================================================
+ERROR: test_ac_zero_power_info_does_not_create_fake_battery_value (test_light.ClientAvailabilityTest.test_ac_zero_power_info_does_not_create_fake_battery_value)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 650, in test_ac_zero_power_info_does_not_create_fake_battery_value
+    client._handle_power_info_update(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute '_handle_power_info_update'
+
+======================================================================
+ERROR: test_advertisement_update_does_not_notify_availability (test_light.ClientAvailabilityTest.test_advertisement_update_does_not_notify_availability)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 482, in test_advertisement_update_does_not_notify_availability
+    client.subscribe_availability(_availability_update)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'subscribe_availability'
+
+======================================================================
+ERROR: test_advertisement_update_notifies_availability_when_gate_enabled (test_light.ClientAvailabilityTest.test_advertisement_update_notifies_availability_when_gate_enabled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 504, in test_advertisement_update_notifies_availability_when_gate_enabled
+    self.assertFalse(client.is_available)
+                     ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'is_available'
+
+======================================================================
+ERROR: test_cached_stale_advertisement_reports_unavailable_when_enabled (test_light.ClientAvailabilityTest.test_cached_stale_advertisement_reports_unavailable_when_enabled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 418, in test_cached_stale_advertisement_reports_unavailable_when_enabled
+    client.mark_advertisement_seen(
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'mark_advertisement_seen'. Did you mean: '_last_advertisement_seen'?
+
+======================================================================
+ERROR: test_command_failure_does_not_latch_light_unavailable (test_light.ClientAvailabilityTest.test_command_failure_does_not_latch_light_unavailable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 582, in test_command_failure_does_not_latch_light_unavailable
+    self.assertTrue(client.is_available)
+                    ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'is_available'
+
+======================================================================
+ERROR: test_decoded_power_info_updates_battery_capable_client (test_light.ClientAvailabilityTest.test_decoded_power_info_updates_battery_capable_client)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 617, in test_decoded_power_info_updates_battery_capable_client
+    client.subscribe_battery(_callback)
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'subscribe_battery'
+
+======================================================================
+ERROR: test_presence_expiry_marks_unavailable_when_gate_enabled (test_light.ClientAvailabilityTest.test_presence_expiry_marks_unavailable_when_gate_enabled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 537, in test_presence_expiry_marks_unavailable_when_gate_enabled
+    client.subscribe_availability(_availability_update)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'subscribe_availability'
+
+======================================================================
+ERROR: test_presence_tracking_option_gates_availability (test_light.ClientAvailabilityTest.test_presence_tracking_option_gates_availability)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 571, in test_presence_tracking_option_gates_availability
+    self.assertFalse(client.is_available)
+                     ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'is_available'
+
+======================================================================
+ERROR: test_proxy_ready_with_recent_advertisement_reports_available (test_light.ClientAvailabilityTest.test_proxy_ready_with_recent_advertisement_reports_available)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 398, in test_proxy_ready_with_recent_advertisement_reports_available
+    self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
+                     ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'transport_state'
+
+======================================================================
+ERROR: test_proxy_ready_without_connection_reports_unavailable (test_light.ClientAvailabilityTest.test_proxy_ready_without_connection_reports_unavailable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 388, in test_proxy_ready_without_connection_reports_unavailable
+    self.assertEqual(client.transport_state, TRANSPORT_STATE_DISCONNECTED)
+                     ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'transport_state'
+
+======================================================================
+ERROR: test_proxy_ready_without_light_advertisement_reports_available (test_light.ClientAvailabilityTest.test_proxy_ready_without_light_advertisement_reports_available)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 407, in test_proxy_ready_without_light_advertisement_reports_available
+    self.assertEqual(client.transport_state, TRANSPORT_STATE_PROXY_READY)
+                     ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'transport_state'
+
+======================================================================
+ERROR: test_reconnecting_reports_unavailable (test_light.ClientAvailabilityTest.test_reconnecting_reports_unavailable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 601, in test_reconnecting_reports_unavailable
+    self.assertEqual(client.transport_state, TRANSPORT_STATE_RECONNECTING)
+                     ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'transport_state'
+
+======================================================================
+ERROR: test_stale_light_advertisement_reports_unavailable_when_enabled (test_light.ClientAvailabilityTest.test_stale_light_advertisement_reports_unavailable_when_enabled)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 561, in test_stale_light_advertisement_reports_unavailable_when_enabled
+    self.assertFalse(client.is_available)
+                     ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute 'is_available'
+
+======================================================================
+ERROR: test_startup_cache_seed_uses_all_advertisements (test_light.ClientAvailabilityTest.test_startup_cache_seed_uses_all_advertisements)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_light.py", line 459, in test_startup_cache_seed_uses_all_advertisements
+    client._seed_last_advertisement_from_cache()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'AmaranSidusClient' object has no attribute '_seed_last_advertisement_from_cache'
+
+----------------------------------------------------------------------
+Ran 188 tests in 0.156s
+
+FAILED (errors=14)

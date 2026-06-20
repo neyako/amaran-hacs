@@ -28,8 +28,6 @@ jobs:
 
   lint:
     name: Ruff
-    # TODO(advisor-006): make ruff blocking once existing findings are cleared
-    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +35,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install ruff
-        run: python -m pip install --upgrade pip ruff
+        run: python -m pip install --upgrade pip "ruff==0.15.18"
       - name: Ruff check
         run: ruff check .
 

@@ -1,8 +1,9 @@
 # Plans
 
-Reconciled 2026-06-20 against HEAD `0a14f9d` (`main`) + **uncommitted** perf work
-(016–018) in the working tree. Suite: `python3 -m unittest discover -s tests` →
-**178 OK**.
+Reconciled 2026-06-20 against HEAD `2193a35` (`main`). Plans 012–018 are all
+committed (perf 016–018 landed in `bea84f7`); plans 019–022 are implemented in
+the working tree. Suite: `uvx --with cryptography python -m unittest discover -s
+tests` → **188 OK**.
 
 | Plan | Status | Notes |
 | --- | --- | --- |
@@ -10,9 +11,13 @@ Reconciled 2026-06-20 against HEAD `0a14f9d` (`main`) + **uncommitted** perf wor
 | 013 | DONE (committed) | `013-multi-light-import.md` — committed `327a2eb` (`feat(amaran): import multiple lights in one pass`). Physical validation that selecting N lights yields N entries still pending. |
 | 014 | DONE (verified) | `014-effects-capture-spike.md` — design in `docs/effects-design.md` (7 sections); docs-only, `product.json` untouched. Build gated on real-light capture. |
 | 015 | DONE (verified) | `015-rgbww-capture-spike.md` — design in `docs/rgbww-design.md` (7 sections); docs-only, no encoder/entity wiring. Build gated on mixed RGB+white real-light capture. |
-| 016 | DONE (verified, uncommitted) | `016-cache-mesh-key-derivation.md` — perf P1. `@lru_cache(maxsize=8)` on `derive_mesh_keys` (`protocol.py:346`), body unchanged; +2 tests (`DeriveMeshKeysCacheTest`). Verified greps + suite. **Working tree only — not committed.** |
-| 017 | DONE (verified, uncommitted) | `017-batch-sequence-persistence.md` — perf P2. High-water mark in `SidusSequenceManager` (`client.py:90,109,130,152,164`); +3 tests pinning batch=1-write-per-64 + restart resume. Transport `save_count==2` intact. **Uncommitted; physical-light + restart validation still pending** (mesh sequence durability). |
-| 018 | DONE (verified, uncommitted) | `018-guard-hot-path-debug-logging.md` — perf P3. 5 `isEnabledFor` guards in `transport.py` (TX `access` build now guarded at `:603-604`) + 3 in `client.py`; +3 tests (`HotPathLoggingGuardTest`, `RxLoggingGuardTest`). **Working tree only — not committed.** |
+| 016 | DONE (committed `bea84f7`) | `016-cache-mesh-key-derivation.md` — perf P1. `@lru_cache(maxsize=8)` on `derive_mesh_keys` (`protocol.py:346`), body unchanged; +2 tests (`DeriveMeshKeysCacheTest`). |
+| 017 | DONE (committed `bea84f7`) | `017-batch-sequence-persistence.md` — perf P2. High-water mark in `SidusSequenceManager` (`client.py:90,109,130,152,164`); +3 tests pinning batch=1-write-per-64 + restart resume. Physical-light + restart validation still pending (mesh sequence durability). |
+| 018 | DONE (committed `bea84f7`) | `018-guard-hot-path-debug-logging.md` — perf P3. 5 `isEnabledFor` guards in `transport.py` (TX `access` build guarded at `:603-604`) + 3 in `client.py`; +3 tests (`HotPathLoggingGuardTest`, `RxLoggingGuardTest`). |
+| 019 | DONE (verified) | `019-test-diagnostics-redaction.md` — tests/security. `tests/test_diagnostics.py` locks the diagnostics key-redaction contract (top-level + nested-fixture keys redacted; raw key hex absent from full output; runtime section key-free). Regression guard, no source change. +3 tests. |
+| 020 | DONE (verified) | `020-test-state-store.md` — tests. `tests/test_state_store.py` pins `_state_store_key` (sha1 identity formula + differentiators) and the save/load round-trip shape. Guards against silently orphaning persisted light state. +7 tests. |
+| 021 | DONE (verified) | `021-make-ruff-ci-blocking.md` — dx. Dropped `continue-on-error` from the `lint` job and pinned `ruff==0.15.18`; closes the advisor-006 TODO. CI-only. |
+| 022 | DONE (verified) | `022-telemetry-entities-spike.md` — direction spike. `docs/telemetry-design.md` designs power-source `binary_sensor` + runtime/voltage sensors from already-decoded `SidusPowerInfo`; optional dormant helpers skipped. GO/no-go: **buildable now** (no hardware gate). |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED | REJECTED
 
@@ -98,6 +103,39 @@ files 016–018 untracked). Verified:
    durability): run several commands on a real light, restart Home Assistant,
    confirm commands still take effect and no sequence-reuse rejection. 016 and 018
    are pure (cache / logging) and need no light validation.
+
+## Run 4 (2026-06-20): deep audit (all categories)
+
+`/improve deep` against HEAD `2193a35`; baseline `python3 -m unittest discover -s
+tests` → **178 OK**; `uvx ruff check .` → **All checks passed**. Audited directly
+(not via subagents): the repo is small and already thrice-audited, so context-blind
+fan-out would mostly re-surface the settled ledger below. Read all 18 source
+modules + recon/config.
+
+**Verdict**: codebase is mature and clean — crypto parity-locked + tested, security
+model solid (recursive redaction + diagnostics double-redact; no live key leak
+found), transport/watchdog sound, 178 tests. Prior runs took the high-leverage
+wins; what remained were regression-guard test gaps and one CI tidy, not bugs.
+
+**Recommended order**: 019 → 020 → 021 → 022. All four are **independent** (no plan
+depends on another). 019 + 020 are the highest value (lock the security-critical
+diagnostics redaction and the persisted-state identity). 021 is a trivial CI flip.
+022 is a design spike (the one direction item with no hardware gate).
+
+**Findings considered and NOT planned (run 4):**
+
+- **Access/battery RX callback not loop-dispatched** — `client._handle_access_update`
+  → `_handle_power_info_update` mutates battery state on the Bleak notify thread,
+  inconsistent with the 007 status-thread-safety fix; the final HA write *is*
+  dispatched and the mutations are atomic ref-swaps under the GIL. Low impact, low
+  confidence it manifests; not planned (revisit if battery state is ever seen to
+  tear under a non-loop BLE backend).
+- **`async_migrate_entry` targets `minor_version=3` while the flow declares
+  `MINOR_VERSION=2`** (`__init__.py:97` vs `config_flow.py:206`) — idempotent today
+  (guard at `__init__.py:53`); latent footgun for a future migration. Too thin to
+  plan; noted for whoever next bumps the config-flow version.
+- **Per-payload TX timing debug at `transport.py:647-662`** — already left
+  deliberately by plan 018 (cheap pre-evaluated scalar args); not re-opened.
 
 ## Prior runs (history, not in this tree)
 

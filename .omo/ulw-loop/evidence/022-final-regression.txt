@@ -1,0 +1,85 @@
+# 022 final regression and scope evidence
+## telemetry doc exists
+docs/telemetry-design.md exists
+## telemetry doc section count
+section_count=7
+## required text checks
+28:No new decoding or hardware capture is required for the proposed telemetry
+81:3. Gate the Running on battery entity on `client.battery_capable`, matching the
+96:Telemetry entities are created only for lights where `client.battery_capable` is
+135:   `client.battery_capable` and subscribed to battery updates.
+55:Every proposed entity must be unavailable until a real decoded packet exists.
+114:Decision: GO, buildable now without hardware capture.
+## plan index rows
+17:| 019 | DONE (verified) | `019-test-diagnostics-redaction.md` — tests/security. `tests/test_diagnostics.py` locks the diagnostics key-redaction contract (top-level + nested-fixture keys redacted; raw key hex absent from full output; runtime section key-free). Regression guard, no source change. +3 tests. |
+18:| 020 | DONE (verified) | `020-test-state-store.md` — tests. `tests/test_state_store.py` pins `_state_store_key` (sha1 identity formula + differentiators) and the save/load round-trip shape. Guards against silently orphaning persisted light state. +7 tests. |
+19:| 021 | DONE (verified) | `021-make-ruff-ci-blocking.md` — dx. Dropped `continue-on-error` from the `lint` job and pinned `ruff==0.15.18`; closes the advisor-006 TODO. CI-only. |
+20:| 022 | DONE (verified) | `022-telemetry-entities-spike.md` — direction spike. `docs/telemetry-design.md` designs power-source `binary_sensor` + runtime/voltage sensors from already-decoded `SidusPowerInfo`; optional dormant helpers skipped. GO/no-go: **buildable now** (no hardware gate). |
+## protected source status
+## scoped status
+ M .github/workflows/ci.yml
+ M plans/README.md
+?? docs/telemetry-design.md
+?? tests/test_diagnostics.py
+?? tests/test_state_store.py
+## full suite
+......................Sidus BLE connection disconnected; reconnecting lights=4 reason=reload
+......................Migrated grouped amaran entry to 2 light entries
+...................................................................................................................................Task exception was never retrieved
+future: <Task finished name='amaran_AA:BB:CC:DD:EE:FF_ble_worker' coro=<SidusPersistentTransport._worker_loop() done, defined at /Users/neyako/Documents/hacs-amaran/custom_components/amaran/transport.py:902> exception=RuntimeError('cannot reuse already awaited coroutine') created at /Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/tasks.py:420>
+source_traceback: Object created at (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/__main__.py", line 18, in <module>
+    main(module=None)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/main.py", line 105, in __init__
+    self.runTests()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/main.py", line 281, in runTests
+    self.result = testRunner.run(self.test)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/runner.py", line 240, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/case.py", line 690, in __call__
+    return self.run(*args, **kwds)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 132, in run
+    return super().run(result)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/case.py", line 634, in run
+    self._callTestMethod(testMethod)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 91, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/unittest/async_case.py", line 113, in _callMaybeAsync
+    return self._asyncioRunner.run(
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 678, in run_until_complete
+    self.run_forever()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 645, in run_forever
+    self._run_once()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 1991, in _run_once
+    handle._run()
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/Users/neyako/Documents/hacs-amaran/tests/test_transport.py", line 254, in test_warmup_unavailable_sets_failed_state
+    await transport.async_setup()
+  File "/Users/neyako/Documents/hacs-amaran/custom_components/amaran/transport.py", line 832, in async_setup
+    self._worker_task = asyncio.create_task(coroutine, name=name)
+  File "/Users/neyako/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/tasks.py", line 420, in create_task
+    task = loop.create_task(coro)
+RuntimeError: cannot reuse already awaited coroutine
+.......Sidus proxy link silent for >90s (last_write=1781958700.54061 last_rx=1781957700.54061); forcing reconnect lights via fresh proxy connection
+......
+----------------------------------------------------------------------
+Ran 188 tests in 0.151s
+
+OK

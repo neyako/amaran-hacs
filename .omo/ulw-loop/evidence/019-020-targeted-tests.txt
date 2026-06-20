@@ -1,0 +1,30 @@
+# 019-020 targeted tests
+## import tests.test_diagnostics via local python3
+## import tests.test_state_store via CI dependency runner
+## diagnostics unittest
+test_entry_section_redacts_top_level_and_nested_keys (tests.test_diagnostics.DiagnosticsRedactionTest.test_entry_section_redacts_top_level_and_nested_keys) ... ok
+test_raw_keys_never_appear_anywhere_in_output (tests.test_diagnostics.DiagnosticsRedactionTest.test_raw_keys_never_appear_anywhere_in_output) ... ok
+test_runtime_section_present_and_key_free (tests.test_diagnostics.DiagnosticsRedactionTest.test_runtime_section_present_and_key_free) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.004s
+
+OK
+## state_store unittest
+test_key_differs_when_node_or_source_or_mac_differs (tests.test_state_store.StateStoreKeyTest.test_key_differs_when_node_or_source_or_mac_differs) ... ok
+test_key_has_expected_prefix_and_digest_length (tests.test_state_store.StateStoreKeyTest.test_key_has_expected_prefix_and_digest_length) ... ok
+test_key_is_stable_for_same_inputs (tests.test_state_store.StateStoreKeyTest.test_key_is_stable_for_same_inputs) ... ok
+test_key_matches_documented_formula (tests.test_state_store.StateStoreKeyTest.test_key_matches_documented_formula) ... ok
+test_load_ignores_non_dict_payload (tests.test_state_store.StateStoreRoundTripTest.test_load_ignores_non_dict_payload) ... ok
+test_load_returns_none_when_store_empty (tests.test_state_store.StateStoreRoundTripTest.test_load_returns_none_when_store_empty) ... ok
+test_save_then_load_preserves_state_fields (tests.test_state_store.StateStoreRoundTripTest.test_save_then_load_preserves_state_fields) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.003s
+
+OK
+## ruff focused tests
+All checks passed!
+## status custom_components guard
+?? tests/test_diagnostics.py
+?? tests/test_state_store.py

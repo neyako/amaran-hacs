@@ -1,0 +1,137 @@
+{
+  "codeReview": {
+    "by": "lazycodex-code-reviewer",
+    "recommendation": "APPROVE",
+    "codeQualityStatus": "CLEAR",
+    "reportPath": ".omo/evidence/hacs-amaran-plans-019-022-code-review.md",
+    "evidence": "No findings; targeted tests, full suite, Ruff, scope, and telemetry docs-only constraints verified.",
+    "blockers": []
+  },
+  "manualQa": {
+    "by": "lazycodex-qa-executor",
+    "status": "passed",
+    "evidence": "CLI/data artifacts passed for diagnostics/state_store tests, pinned Ruff CI, telemetry docs, scope, and full suite.",
+    "surfaceEvidence": [
+      {
+        "id": "qa-019-020-targeted-tests",
+        "criterionRef": "C001",
+        "surface": "cli",
+        "invocation": "uvx --with cryptography python -m unittest tests.test_diagnostics -v && uvx --with cryptography python -m unittest tests.test_state_store -v && uvx ruff@0.15.18 check tests/test_diagnostics.py tests/test_state_store.py",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-019-020"
+        ]
+      },
+      {
+        "id": "qa-021-ruff-ci",
+        "criterionRef": "C002",
+        "surface": "cli",
+        "invocation": "uvx ruff@0.15.18 check . plus grep and YAML checks for .github/workflows/ci.yml",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-021"
+        ]
+      },
+      {
+        "id": "qa-022-final-regression",
+        "criterionRef": "C003",
+        "surface": "cli",
+        "invocation": "uvx --with cryptography python -m unittest discover -s tests plus docs/status checks",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-022"
+        ]
+      }
+    ],
+    "adversarialCases": [
+      {
+        "id": "adv-artifact-presence",
+        "criterionRef": "C001-C003",
+        "scenario": "all required artifacts exist and are non-empty",
+        "expectedBehavior": "evidence files have non-zero size",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-019-020",
+          "artifact-021",
+          "artifact-022"
+        ]
+      },
+      {
+        "id": "adv-protected-source-scope",
+        "criterionRef": "C003",
+        "scenario": "custom_components source remains unchanged",
+        "expectedBehavior": "git status for protected runtime source is clean",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-022"
+        ]
+      },
+      {
+        "id": "adv-test-pollution",
+        "criterionRef": "C001",
+        "scenario": "diagnostics test client stub must not pollute later imports",
+        "expectedBehavior": "full unittest discover passes after tests.test_diagnostics",
+        "verdict": "passed",
+        "artifactRefs": [
+          "artifact-022"
+        ]
+      }
+    ],
+    "artifactRefs": [
+      {
+        "id": "artifact-019-020",
+        "kind": "cli-transcript",
+        "description": "Targeted diagnostics and state_store tests plus focused Ruff.",
+        "path": ".omo/ulw-loop/evidence/019-020-targeted-tests.txt"
+      },
+      {
+        "id": "artifact-021",
+        "kind": "cli-transcript",
+        "description": "Pinned Ruff CI workflow checks.",
+        "path": ".omo/ulw-loop/evidence/021-ruff-ci.txt"
+      },
+      {
+        "id": "artifact-022",
+        "kind": "cli-transcript",
+        "description": "Telemetry doc checks, scope checks, plan index rows, and full unittest suite.",
+        "path": ".omo/ulw-loop/evidence/022-final-regression.txt"
+      },
+      {
+        "id": "artifact-manual-qa",
+        "kind": "log",
+        "description": "Manual QA matrix.",
+        "path": ".omo/evidence/hacs-amaran-plans-019-022-manual-qa.md"
+      }
+    ]
+  },
+  "gateReview": {
+    "by": "lazycodex-gate-reviewer",
+    "recommendation": "APPROVE",
+    "reportPath": ".omo/evidence/hacs-amaran-plans-019-022-gate-review-final.md",
+    "evidence": "Final gate reviewer returned APPROVE after code review, manual QA, gate context, criteria pass, and scope artifacts were present.",
+    "blockers": []
+  },
+  "iteration": {
+    "fullRerun": true,
+    "status": "passed",
+    "rerunCommands": [
+      "uvx --with cryptography python -m unittest discover -s tests",
+      "uvx ruff@0.15.18 check ."
+    ],
+    "evidence": "Full suite ran 188 tests OK under CI-equivalent cryptography dependency; Ruff 0.15.18 passed. Full suite prints an existing async task warning from test_transport but exits OK."
+  },
+  "criteriaCoverage": {
+    "totalCriteria": 3,
+    "passCount": 3,
+    "originalIntent": "Implement plans 019-022 exactly: diagnostics redaction tests, state-store tests, blocking pinned Ruff CI, telemetry design spike, and plan index updates.",
+    "desiredOutcome": "Regression guards and docs/CI changes land without runtime custom_components source changes or telemetry wiring.",
+    "userOutcomeReview": "Outcome matches the four plan contracts; no custom_components source edits; no push or PR performed.",
+    "adversarialClassesCovered": [
+      "missing-or-empty-evidence",
+      "out-of-scope-source-change",
+      "test-pollution",
+      "unpinned-ci-tool",
+      "docs-spike-scope-creep"
+    ]
+  }
+}
