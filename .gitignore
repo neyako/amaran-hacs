@@ -16,3 +16,7 @@ logs/
 captures/
 *export*.json
 *recovered*.json
+
+# Agent harness artifacts (omo / opencode executor scaffolding)
+.omo/
+.opencode/
