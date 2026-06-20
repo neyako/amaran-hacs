@@ -1,9 +1,10 @@
 # Plans
 
-Reconciled 2026-06-20 against HEAD `2193a35` (`main`). Plans 012–018 are all
-committed (perf 016–018 landed in `bea84f7`); plans 019–022 are implemented in
-the working tree. Suite: `uvx --with cryptography python -m unittest discover -s
-tests` → **188 OK**.
+Reconciled 2026-06-20 against HEAD `361bcaf` (`main`). Plans 012–022 are all
+committed (perf 016–018 in `bea84f7`; tests/CI/docs 019–022 in `361bcaf`). Suite:
+`uv run --with cryptography python -m unittest discover -s tests` → **188 OK**
+(local `python3` currently lacks `cryptography`, so the bare `unittest` command
+errors on import — see Run 5).
 
 | Plan | Status | Notes |
 | --- | --- | --- |
@@ -136,6 +137,49 @@ diagnostics redaction and the persisted-state identity). 021 is a trivial CI fli
   plan; noted for whoever next bumps the config-flow version.
 - **Per-payload TX timing debug at `transport.py:647-662`** — already left
   deliberately by plan 018 (cheap pre-evaluated scalar args); not re-opened.
+
+## Run 5 (2026-06-20): reconcile
+
+`/improve reconcile` after an external agent harness (`omo`/`opencode`) executed
+**all four** plans 019–022 and committed them in one squashed commit `361bcaf`
+(message "Make Ruff CI blocking and pin version" — misleadingly names only 021).
+
+**Independent verification (advisor):**
+
+- Full suite green — `uv run --with cryptography python -m unittest discover -s
+  tests` → **188 OK** (178 baseline + 10 new: diagnostics 3 + state_store 7).
+  *(Local `python3` lost `cryptography`, so the bare `unittest` command fails with
+  `ModuleNotFoundError: cryptography` — an environment gap, not a code regression.
+  Use the `uv run --with cryptography …` form, or rely on CI which installs it.)*
+- **019** ✓ `tests/test_diagnostics.py` — 3 real assertions (redacts top-level +
+  nested-fixture keys; raw key hex absent from full `json.dumps`; runtime section
+  key-free with a key-carrying fake client). Executor deviation — snapshot/restore
+  of `custom_components.amaran.*` modules + a bare `AmaranSidusClient` stub to dodge
+  the crypto-heavy import chain — is sound and in-scope; real `redact_sensitive`
+  still exercised.
+- **020** ✓ `tests/test_state_store.py` — 7 real assertions (independent sha1 key
+  recompute, stability, differentiators, prefix/length, round-trip shape,
+  empty→None, non-dict→None).
+- **021** ✓ `ci.yml` lint job: `continue-on-error` and the advisor-006 TODO removed,
+  `ruff==0.15.18` pinned. `uvx ruff@0.15.18 check .` → All checks passed.
+- **022** ✓ `docs/telemetry-design.md` — 7 sections; optional Phase B helpers
+  correctly skipped (they were opt-in).
+
+**Reconcile findings (for the user — advisor does not mutate the tree):**
+
+- **Out-of-scope cruft committed, now cleaned.** `361bcaf` added 16 agent-harness
+  files — `.omo/ulw-loop/**` (evidence, gate reviews, goals, ledger) and
+  `.opencode/opencode.db-{shm,wal}` (binary) — violating every plan's "in scope:
+  only this file" boundary. **No secrets leaked** (scanned: only fake test key
+  constants). Untracked + git-ignored in `b3ba619` (the existing `*.db` rule missed
+  the `.db-shm`/`.db-wal` extensions). The blobs still exist in `361bcaf` history;
+  it is not pushed, so amend/rebase if a fully clean history is wanted.
+- History hygiene: four independent plans landed in one commit; each plan's git
+  workflow asked for a branch/commit per plan. Cosmetic — the work is correct.
+
+All 019–022 findings are resolved. No open plans remain; effects (014) / RGBWW
+(015) stay capture-gated; the telemetry build (from 022's design) is the next
+buildable item.
 
 ## Prior runs (history, not in this tree)
 
