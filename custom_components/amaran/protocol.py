@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import re
 
 from cryptography.hazmat.primitives.cmac import CMAC
@@ -342,8 +343,13 @@ def access_payload(sidus_payload: bytes, opcode: int = SIDUS_ACCESS_OPCODE) -> b
     return bytes([opcode]) + sidus_payload
 
 
+@lru_cache(maxsize=8)
 def derive_mesh_keys(net_key: bytes, app_key: bytes) -> MeshKeys:
-    """Derive Bluetooth Mesh K2/K4 values used by the proxy network PDU."""
+    """Derive Bluetooth Mesh K2/K4 values used by the proxy network PDU.
+
+    Cached: the derivation is a pure function of the two keys, which never change
+    for a mesh, and it runs on every PDU build and every received packet.
+    """
 
     nid, encryption_key, privacy_key = _k2(net_key)
     aid = _k4(app_key)

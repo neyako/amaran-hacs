@@ -7,6 +7,7 @@ import sys
 import types
 from typing import Any
 import unittest
+from unittest import mock
 
 
 def _make_event_module() -> types.ModuleType:
@@ -63,8 +64,10 @@ _install_homeassistant_stubs()
 
 import custom_components.amaran.client as client_module
 from custom_components.amaran.client import (
+    _SEQUENCE_PERSIST_BATCH,
     AmaranSidusClient,
     SidusMeshNetwork,
+    SidusSequenceManager,
     get_mesh_network,
     mesh_network_key,
 )
@@ -111,6 +114,93 @@ class FakeEntry:
         self.options = options or {}
         self.title = "amaran Mesh"
         self.entry_id = entry_id
+
+
+class _CountingStore:
+    """Store stub that counts writes and keeps the last persisted dict."""
+
+    def __init__(self) -> None:
+        self.data: dict[str, Any] | None = None
+        self.save_count = 0
+
+    async def async_load(self) -> dict[str, Any] | None:
+        return self.data
+
+    async def async_save(self, data: dict[str, Any]) -> None:
+        self.save_count += 1
+        self.data = data
+
+
+def _make_sequence_manager(store: _CountingStore) -> SidusSequenceManager:
+    manager = SidusSequenceManager(object(), "test")
+    manager._store = store
+    return manager
+
+
+class SequencePersistenceBatchingTest(unittest.IsolatedAsyncioTestCase):
+    async def _reserve_and_save(self, manager: SidusSequenceManager) -> None:
+        # Mirror what the transport does per send: bump sequence, then save.
+        manager.sequence += 1
+        await manager.async_save(node_address=2, source_address=0x000F, iv_index=0)
+
+    async def test_persists_high_water_ahead_of_use(self) -> None:
+        store = _CountingStore()
+        manager = _make_sequence_manager(store)
+        await manager.async_setup(
+            initial_sequence=100000,
+            node_address=2,
+            source_address=0x000F,
+            iv_index=0,
+        )
+
+        await self._reserve_and_save(manager)
+
+        self.assertEqual(store.save_count, 1)
+        self.assertEqual(store.data["sequence"], 100001 + _SEQUENCE_PERSIST_BATCH)
+
+    async def test_skips_disk_writes_until_high_water_is_exceeded(self) -> None:
+        store = _CountingStore()
+        manager = _make_sequence_manager(store)
+        await manager.async_setup(
+            initial_sequence=100000,
+            node_address=2,
+            source_address=0x000F,
+            iv_index=0,
+        )
+
+        for _ in range(_SEQUENCE_PERSIST_BATCH):
+            await self._reserve_and_save(manager)
+
+        self.assertEqual(store.save_count, 1)
+
+        await self._reserve_and_save(manager)
+        self.assertEqual(store.save_count, 1)
+
+        await self._reserve_and_save(manager)
+        self.assertEqual(store.save_count, 2)
+
+    async def test_restart_resumes_at_or_above_persisted_high_water(self) -> None:
+        store = _CountingStore()
+        first = _make_sequence_manager(store)
+        await first.async_setup(
+            initial_sequence=100000,
+            node_address=2,
+            source_address=0x000F,
+            iv_index=0,
+        )
+        await self._reserve_and_save(first)
+        persisted = store.data["sequence"]
+
+        second = _make_sequence_manager(store)
+        await second.async_setup(
+            initial_sequence=100000,
+            node_address=2,
+            source_address=0x000F,
+            iv_index=0,
+        )
+
+        self.assertEqual(second.sequence, persisted)
+        self.assertGreater(second.sequence, 100001)
 
 
 class SharedMeshTransportModelTest(unittest.TestCase):
@@ -492,6 +582,36 @@ class GreenMagentaClientTest(unittest.IsolatedAsyncioTestCase):
 
         await client.async_set_green_magenta(-99)
         self.assertEqual(client.green_magenta, -10)
+
+
+class HotPathLoggingGuardTest(unittest.IsolatedAsyncioTestCase):
+    async def test_brightness_cct_skips_log_only_work_when_debug_off(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+        with mock.patch.object(
+            client_module._LOGGER, "isEnabledFor", return_value=False
+        ), mock.patch.object(
+            client_module, "access_payload", wraps=client_module.access_payload
+        ) as access_spy:
+            await client.async_set_brightness_cct(brightness=200, kelvin=5000)
+
+        access_spy.assert_not_called()
+        self.assertEqual(
+            mesh.sent[-1][0],
+            [cct_payload_ha(brightness=200, kelvin=5000, gm=0)],
+        )
+
+    async def test_brightness_cct_logs_when_debug_on(self) -> None:
+        mesh = FakePollMesh(ready=True)
+        client = _make_cct_client(mesh)
+        with mock.patch.object(
+            client_module._LOGGER, "isEnabledFor", return_value=True
+        ), mock.patch.object(
+            client_module, "access_payload", wraps=client_module.access_payload
+        ) as access_spy:
+            await client.async_set_brightness_cct(brightness=200, kelvin=5000)
+
+        access_spy.assert_called()
 
 
 class PollTest(unittest.IsolatedAsyncioTestCase):

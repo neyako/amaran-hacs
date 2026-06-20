@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import Any
 import unittest
+from unittest import mock
 
 from custom_components.amaran.const import (
     PROXY_SELECTION_AUTO,
@@ -17,6 +18,7 @@ from custom_components.amaran.const import (
 )
 from custom_components.amaran.protocol import brightness_payload_percent, power_payload
 from custom_components.amaran.protocol import build_mesh_proxy_pdu, power_status_request_payload
+import custom_components.amaran.transport as transport_module
 from custom_components.amaran.transport import (
     SidusBaseTransport,
     SidusPersistentTransport,
@@ -510,6 +512,19 @@ class NotificationCaptureTest(unittest.TestCase):
         self.assertEqual(messages[0]["sidus_payload"], power_status_request_payload())
         self.assertTrue(transport._ever_received_notification)
         self.assertIsNotNone(transport.metrics["last_notification_time"])
+
+
+class RxLoggingGuardTest(unittest.TestCase):
+    def test_filter_status_notification_skips_hex_when_debug_off(self) -> None:
+        transport = FakePersistentTransport(sequence_manager=FakeSequenceManager())
+        raw = b"\x02\x03\x01\x00\x00"
+        with mock.patch.object(
+            transport_module._LOGGER, "isEnabledFor", return_value=False
+        ), mock.patch.object(transport_module._LOGGER, "debug") as debug:
+            transport._handle_proxy_out_notification(None, raw)
+
+        self.assertEqual(transport.metrics["filter_status_count"], 1)
+        debug.assert_not_called()
 
 
 class AutoProxySelectionTest(unittest.TestCase):

@@ -507,11 +507,12 @@ class SidusBaseTransport:
         self._ever_received_notification = True
         if is_proxy_filter_status(raw):
             self._metrics.filter_status_count += 1
-            _LOGGER.debug(
-                "Sidus proxy filter status received len=%s raw=%s",
-                len(raw),
-                raw.hex(" "),
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Sidus proxy filter status received len=%s raw=%s",
+                    len(raw),
+                    raw.hex(" "),
+                )
             return
         decoded = decode_mesh_proxy_access(
             net_key=self._settings.net_key,
@@ -520,23 +521,25 @@ class SidusBaseTransport:
             proxy_pdu=raw,
         )
         if decoded is None:
-            _LOGGER.debug(
-                "Sidus Mesh Proxy Data Out notification len=%s type=0x%02x raw=%s",
-                len(raw),
-                raw[0] & 0x3F if raw else -1,
-                raw.hex(" "),
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Sidus Mesh Proxy Data Out notification len=%s type=0x%02x raw=%s",
+                    len(raw),
+                    raw[0] & 0x3F if raw else -1,
+                    raw.hex(" "),
+                )
             return
         self._notify_access_callback(decoded)
         status = decoded.sidus_status
         if status is None:
-            _LOGGER.debug(
-                "Sidus decoded access src=0x%04x dst=0x%04x seq=%s access=%s",
-                decoded.source_address,
-                decoded.destination_address,
-                decoded.sequence,
-                decoded.access_payload.hex(" "),
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Sidus decoded access src=0x%04x dst=0x%04x seq=%s access=%s",
+                    decoded.source_address,
+                    decoded.destination_address,
+                    decoded.sequence,
+                    decoded.access_payload.hex(" "),
+                )
             return
         payload = {
             "power": status.power,
@@ -597,23 +600,24 @@ class SidusBaseTransport:
         for index, (current_sequence, sidus_payload) in enumerate(
             zip(sequences, sidus_payloads)
         ):
-            access = access_payload(sidus_payload)
-            _LOGGER.debug(
-                "Sidus payload write light=%s light_mac=%s light_node=0x%04x "
-                "selected_ble_mac=%s dst=0x%04x seq=%s src=0x%04x "
-                "sidus=%s access=%s",
-                fixture_name,
-                fixture_mac,
-                node_address,
-                self._last_bluetooth_device["address"]
-                if self._last_bluetooth_device
-                else None,
-                node_address,
-                current_sequence,
-                self._settings.source_address,
-                sidus_payload.hex(" "),
-                access.hex(" "),
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                access = access_payload(sidus_payload)
+                _LOGGER.debug(
+                    "Sidus payload write light=%s light_mac=%s light_node=0x%04x "
+                    "selected_ble_mac=%s dst=0x%04x seq=%s src=0x%04x "
+                    "sidus=%s access=%s",
+                    fixture_name,
+                    fixture_mac,
+                    node_address,
+                    self._last_bluetooth_device["address"]
+                    if self._last_bluetooth_device
+                    else None,
+                    node_address,
+                    current_sequence,
+                    self._settings.source_address,
+                    sidus_payload.hex(" "),
+                    access.hex(" "),
+                )
             proxy_pdu = build_mesh_proxy_pdu(
                 net_key=self._settings.net_key,
                 app_key=self._settings.app_key,
@@ -624,20 +628,21 @@ class SidusBaseTransport:
                 sidus_payload=sidus_payload,
                 ttl=self._settings.ttl,
             )
-            _LOGGER.debug(
-                "Writing Sidus proxy PDU seq=%s src=0x%04x dst=0x%04x "
-                "iv_index=%s ttl=%s resolved_address=%s len=%s header=%s",
-                current_sequence,
-                self._settings.source_address,
-                node_address,
-                self._settings.iv_index,
-                self._settings.ttl,
-                self._last_bluetooth_device["address"]
-                if self._last_bluetooth_device
-                else None,
-                len(proxy_pdu),
-                proxy_pdu[:2].hex(),
-            )
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Writing Sidus proxy PDU seq=%s src=0x%04x dst=0x%04x "
+                    "iv_index=%s ttl=%s resolved_address=%s len=%s header=%s",
+                    current_sequence,
+                    self._settings.source_address,
+                    node_address,
+                    self._settings.iv_index,
+                    self._settings.ttl,
+                    self._last_bluetooth_device["address"]
+                    if self._last_bluetooth_device
+                    else None,
+                    len(proxy_pdu),
+                    proxy_pdu[:2].hex(),
+                )
             write_start = time.perf_counter()
             _LOGGER.debug(
                 "Sidus timing write_start seq=%s len=%s queue_depth=%s mode=%s",

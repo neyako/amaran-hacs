@@ -29,6 +29,25 @@ NET_KEY = bytes.fromhex("00112233445566778899aabbccddeeff")
 APP_KEY = bytes.fromhex("ffeeddccbbaa99887766554433221100")
 
 
+class DeriveMeshKeysCacheTest(unittest.TestCase):
+    """derive_mesh_keys must memoize per (net_key, app_key)."""
+
+    def test_same_keys_return_cached_instance(self) -> None:
+        first = derive_mesh_keys(NET_KEY, APP_KEY)
+        second = derive_mesh_keys(NET_KEY, APP_KEY)
+        # Cache hit returns the identical object, not just an equal one.
+        self.assertIs(first, second)
+
+    def test_different_keys_derive_distinct_values(self) -> None:
+        a = derive_mesh_keys(NET_KEY, APP_KEY)
+        b = derive_mesh_keys(APP_KEY, NET_KEY)
+        self.assertIsNot(a, b)
+        self.assertNotEqual(
+            (a.nid, a.encryption_key, a.privacy_key, a.aid),
+            (b.nid, b.encryption_key, b.privacy_key, b.aid),
+        )
+
+
 class PowerPayloadTest(unittest.TestCase):
     """Power payload capture regressions."""
 

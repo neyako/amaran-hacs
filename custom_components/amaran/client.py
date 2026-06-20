@@ -83,6 +83,11 @@ _LOGGER = logging.getLogger(__name__)
 _STORE_VERSION = 1
 _SEQUENCE_MANAGERS = f"{DOMAIN}_sequence_managers"
 _MESH_NETWORKS = f"{DOMAIN}_mesh_networks"
+# How many sequence numbers to reserve on disk per persistence write. We persist
+# a high-water mark this far ahead of current use, then skip disk writes until
+# use catches up. On restart we resume from the persisted high-water (a small
+# forward gap of never-sent numbers; harmless, mesh forbids reuse, not gaps).
+_SEQUENCE_PERSIST_BATCH = 64
 _POWER_SETTLE_DELAY = 0.05
 _MESH_MONITOR_INTERVAL = 5.0
 _AVAILABLE_TRANSPORT_STATES = {
@@ -101,6 +106,7 @@ class SidusSequenceManager:
         self.lock = asyncio.Lock()
         self.sequence = DEFAULT_SEQUENCE
         self._loaded = False
+        self._persisted_high_water = -1
 
     async def async_setup(
         self,
@@ -121,6 +127,7 @@ class SidusSequenceManager:
         if data and CONF_SEQUENCE in data:
             self.sequence = max(self.sequence, int(data[CONF_SEQUENCE]))
         self._loaded = True
+        self._persisted_high_water = self.sequence
         _LOGGER.debug(
             "Loaded Sidus sequence seq=%s node=0x%04x src=0x%04x iv_index=%s",
             self.sequence,
@@ -132,16 +139,29 @@ class SidusSequenceManager:
     async def async_save(
         self, *, node_address: int, source_address: int, iv_index: int
     ) -> None:
-        """Persist the next sequence reserved for this mesh source."""
+        """Persist a sequence high-water mark ahead of current use.
 
+        We only write to disk when the in-memory sequence reaches the value last
+        persisted, then jump the persisted mark ``_SEQUENCE_PERSIST_BATCH`` past
+        current use. The persisted value is therefore always >= every sequence
+        that has been sent, so a crash + restart resumes strictly above all sent
+        numbers and never reuses one. Between writes this is a no-op, removing
+        per-command and per-poll disk churn.
+        """
+
+        if self.sequence <= self._persisted_high_water:
+            return
+
+        high_water = self.sequence + _SEQUENCE_PERSIST_BATCH
         await self._store.async_save(
             {
-                CONF_SEQUENCE: self.sequence,
+                CONF_SEQUENCE: high_water,
                 CONF_NODE_ADDRESS: node_address,
                 CONF_SOURCE_ADDRESS: source_address,
                 CONF_IV_INDEX: iv_index,
             }
         )
+        self._persisted_high_water = high_water
 
 
 class SidusMeshNetwork:
@@ -1060,22 +1080,23 @@ class AmaranSidusClient:
         gm_value = (
             self._desired_green_magenta if gm is None else _clamp_green_magenta(gm)
         )
-        sidus_intensity = round(brightness / 255 * 1000)
-        payload = brightness_cct_payload(
-            brightness=brightness,
-            kelvin=kelvin,
-            gm=gm_value,
-        )
-        _LOGGER.debug(
-            "Combined Sidus request brightness_ha=%s cct_kelvin=%s "
-            "sidus_intensity=%s sidus=%s access=%s power_on=%s",
-            brightness,
-            kelvin,
-            sidus_intensity,
-            payload.hex(" "),
-            access_payload(payload).hex(" "),
-            power_on,
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            sidus_intensity = round(brightness / 255 * 1000)
+            payload = brightness_cct_payload(
+                brightness=brightness,
+                kelvin=kelvin,
+                gm=gm_value,
+            )
+            _LOGGER.debug(
+                "Combined Sidus request brightness_ha=%s cct_kelvin=%s "
+                "sidus_intensity=%s sidus=%s access=%s power_on=%s",
+                brightness,
+                kelvin,
+                sidus_intensity,
+                payload.hex(" "),
+                access_payload(payload).hex(" "),
+                power_on,
+            )
 
         await self.async_send_siduses(
             cct_payloads(
@@ -1099,17 +1120,18 @@ class AmaranSidusClient:
         """Send the Telink brightness-only payload."""
 
         brightness = _clamp_brightness(brightness)
-        sidus_intensity = round(brightness / 255 * 1000)
         payloads = brightness_payloads(brightness=brightness, power_on=power_on)
-        _LOGGER.debug(
-            "Brightness Sidus request brightness_ha=%s sidus_intensity=%s "
-            "sidus=%s access=%s power_on=%s",
-            brightness,
-            sidus_intensity,
-            payloads[-1].hex(" "),
-            access_payload(payloads[-1]).hex(" "),
-            power_on,
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            sidus_intensity = round(brightness / 255 * 1000)
+            _LOGGER.debug(
+                "Brightness Sidus request brightness_ha=%s sidus_intensity=%s "
+                "sidus=%s access=%s power_on=%s",
+                brightness,
+                sidus_intensity,
+                payloads[-1].hex(" "),
+                access_payload(payloads[-1]).hex(" "),
+                power_on,
+            )
 
         await self.async_send_siduses(
             payloads,
@@ -1165,24 +1187,25 @@ class AmaranSidusClient:
 
         brightness = _clamp_brightness(brightness)
         hue, saturation = _clamp_hs(hs_color)
-        sidus_intensity = round(brightness / 255 * 1000)
         payloads = hsi_payloads(
             brightness=brightness,
             hue=hue,
             saturation=saturation,
             power_on=power_on,
         )
-        _LOGGER.debug(
-            "HSI Sidus request brightness_ha=%s hue=%s saturation=%s "
-            "sidus_intensity=%s sidus=%s access=%s power_on=%s",
-            brightness,
-            hue,
-            saturation,
-            sidus_intensity,
-            payloads[-1].hex(" "),
-            access_payload(payloads[-1]).hex(" "),
-            power_on,
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            sidus_intensity = round(brightness / 255 * 1000)
+            _LOGGER.debug(
+                "HSI Sidus request brightness_ha=%s hue=%s saturation=%s "
+                "sidus_intensity=%s sidus=%s access=%s power_on=%s",
+                brightness,
+                hue,
+                saturation,
+                sidus_intensity,
+                payloads[-1].hex(" "),
+                access_payload(payloads[-1]).hex(" "),
+                power_on,
+            )
 
         await self.async_send_siduses(
             payloads,
