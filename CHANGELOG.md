@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v0.4.7 - 2026-06-30
+
+### Reliability
+
+- Recovers from stale ("zombie") BLE mesh proxy links. Writes are sent without a
+  response, so a proxy whose link silently died still looked connected: every
+  command succeeded locally while nothing reached the light, and the monitor
+  never reconnected. A `disconnected_callback` now wakes the reconnect loop on
+  real drops, and a notification-silence watchdog forces a fresh proxy connection
+  when the light stops answering (no status notification for >90s after a write)
+  even though `is_connected` is still True. Adds a `watchdog_reconnect_count`
+  diagnostic.
+- Dispatches BLE status notifications onto the event loop so a status callback
+  arriving on a worker thread can no longer race or break Home Assistant state
+  updates.
+
+### Features
+
+- Imports multiple lights in a single pass instead of one config entry at a time.
+- Exposes a green/magenta tint control as a number entity for capable lights.
+
+### Performance
+
+- Caches mesh key derivation, batches sequence-number persistence, and guards
+  hot-path logging to cut per-command overhead.
+- Skips writing unchanged state to storage.
+
 ## v0.4.6 - 2026-06-19
 
 - Chooses the strongest reachable Amaran BLE proxy in automatic mode instead of

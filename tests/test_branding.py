@@ -19,7 +19,7 @@ class BrandingTest(unittest.TestCase):
 
         self.assertEqual(manifest["domain"], "amaran")
         self.assertEqual(manifest["name"], "amaran")
-        self.assertEqual(manifest["version"], "0.4.6")
+        self.assertEqual(manifest["version"], "0.4.7")
         self.assertTrue(manifest["config_flow"])
         self.assertEqual(manifest["integration_type"], "device")
         self.assertIn(manifest["iot_class"], {"local_push", "local_polling"})
