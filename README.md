@@ -14,10 +14,11 @@ over Bluetooth Mesh.
 
 ## Supported Lights
 
-Currently mapped models:
+Supported and community-reported models:
 
 - amaran 100x / 100x S: brightness and color temperature
 - amaran 60x S: brightness and color temperature
+- amaran Halo 60x: reported working in [#6](https://github.com/neyako/amaran-hacs/issues/6)
 - amaran Ace 25c: brightness, color temperature, and HS color
 - amaran Pano 60c: brightness, color temperature, and HS color
 - amaran Ray 120c: brightness, color temperature (2300–10000 K), and green/magenta
@@ -99,8 +100,8 @@ Then in Home Assistant:
 5. Repeat Add integration with the same JSON for each additional light.
 
 **Close amaran Desktop after setup and keep it closed while using Home Assistant.**
-The Desktop app can hold the Bluetooth connection and leave lights unavailable
-in Home Assistant, as confirmed in [#7](https://github.com/neyako/amaran-hacs/issues/7).
+This was suggested in [#6](https://github.com/neyako/amaran-hacs/issues/6) and
+confirmed to resolve unavailable lights in [#7](https://github.com/neyako/amaran-hacs/issues/7).
 
 The JSON shape also accepts a `lights` list, or the integration's native
 `fixtures` key, for compatibility with existing Amaran Bluetooth tooling.
