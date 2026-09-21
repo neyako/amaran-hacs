@@ -307,6 +307,9 @@ def catalog_capabilities(name: str) -> list[str]:
     if re.search(r"\b(?:motorized|yoke|fresnel)\b", normalized):
         return []
     compact = normalized.replace(" ", "")
+    # Match the integration's CCT-only Ray support (issue #7).
+    if compact in {"ray60c", "ray120c"}:
+        return ["brightness", "color_temp"]
     is_rgb = (
         re.search(r"\b(?:nova|mc|mt|infinimat|infinibar)\b", normalized) is not None
         or re.search(r"(?:ace|pano)?\d+c$", compact) is not None

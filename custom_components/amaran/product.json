@@ -622,5 +622,11 @@
         "authorized_amaran": true,
         "icon_url_amaran": "",
         "public_version": 100
+      },
+      {
+        "name": "amaran Ray 60c"
+      },
+      {
+        "name": "amaran Ray 120c"
       }
     ]

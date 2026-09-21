@@ -285,6 +285,24 @@ class FixtureCapabilityTest(unittest.TestCase):
 
                 self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
 
+    def test_ray_models_override_unverified_hs_capability(self) -> None:
+        for model in ("amaran Ray 60c", "amaran Ray 120c"):
+            for stored_model in (model, "Unknown"):
+                with self.subTest(model=model, stored_model=stored_model):
+                    data = {
+                        CONF_NAME: f"{model} #1",
+                        CONF_MODEL: stored_model,
+                        CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+                    }
+                    profile = detect_fixture_profile(
+                        name=data[CONF_NAME], model=stored_model
+                    )
+                    self.assertEqual(profile.model, model)
+                    self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
+                    self.assertEqual(
+                        light_capability_names(data), ("Brightness", "Color temperature")
+                    )
+
     def test_motorized_accessories_are_unsupported(self) -> None:
         for name in ("Motorized Yoke", "Motorized F14 Fresnel"):
             with self.subTest(name=name):

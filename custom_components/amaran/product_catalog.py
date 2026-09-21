@@ -132,6 +132,10 @@ def classify_product_name(name: Any) -> tuple[str, ...]:
     if is_accessory_name(normalized):
         return ()
 
+    # Ray HSI is not supported by the integration (issue #7).
+    if normalized.replace(" ", "") in {"ray60c", "ray120c"}:
+        return (COLOR_MODE_COLOR_TEMP,)
+
     if _is_rgb_name(normalized):
         return (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
     if _is_cct_name(normalized):
