@@ -20,6 +20,13 @@ Currently mapped models:
 - amaran 60x S: brightness and color temperature
 - amaran Ace 25c: brightness, color temperature, and HS color
 - amaran Pano 60c: brightness, color temperature, and HS color
+- amaran Ray 120c: brightness, color temperature (2300–10000 K), and green/magenta
+  adjustment (-10 to +10), confirmed in [#7](https://github.com/neyako/amaran-hacs/issues/7)
+- amaran Ray 60c: brightness and color temperature (hardware validation pending)
+
+Ray support currently excludes HS/HSI color, effects, and extended CCT+ mode.
+For automatic model recognition, keep `Ray 60c` or `Ray 120c` in the light name
+in amaran Desktop before exporting. Ray models currently match by name only.
 
 Unknown models default to brightness and color temperature when imported.
 
@@ -90,6 +97,10 @@ Then in Home Assistant:
 3. Paste the copied JSON, or open `amaran-export.json` and paste its contents.
 4. Select exactly one light.
 5. Repeat Add integration with the same JSON for each additional light.
+
+**Close amaran Desktop after setup and keep it closed while using Home Assistant.**
+The Desktop app can hold the Bluetooth connection and leave lights unavailable
+in Home Assistant, as confirmed in [#7](https://github.com/neyako/amaran-hacs/issues/7).
 
 The JSON shape also accepts a `lights` list, or the integration's native
 `fixtures` key, for compatibility with existing Amaran Bluetooth tooling.

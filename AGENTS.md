@@ -14,6 +14,8 @@ Supported:
 * Amaran Pano 60c
 * Amaran 60x S
 * Amaran 100x S
+* Amaran Ray 120c (brightness, CCT, and green/magenta confirmed in issue #7)
+* Amaran Ray 60c (CCT support; hardware validation pending)
 
 ---
 
@@ -195,6 +197,10 @@ Expose:
 * color temperature
 
 Do NOT expose HS color.
+
+Ray 60c and Ray 120c also use a CCT-only integration profile despite their
+color-capable hardware. Do not expose HS/HSI until verified. Their catalog
+entries match by name only; product IDs and codes have not been verified.
 
 ---
 

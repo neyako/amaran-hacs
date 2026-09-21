@@ -34,6 +34,30 @@ EXPORT = _load_export_module()
 
 
 class ExportAmaranTest(unittest.TestCase):
+    def test_ray_export_and_import_keep_cct_only_capabilities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "amaran.db"
+            _create_amaran_db(db_path)
+            models = ("amaran Ray 60c", "amaran Ray 120c")
+            with sqlite3.connect(db_path) as conn:
+                for index, model in enumerate(models, start=16):
+                    conn.execute(
+                        "insert into fixtures (mac_address, name, node_address) "
+                        "values (?, ?, ?)",
+                        (f"AA:BB:CC:DD:EE:{index:02X}", f"{model} #1", index),
+                    )
+
+            payload = EXPORT.export_payload(db_path)
+            imported = load_fixture_import_json(json.dumps(payload))
+            for model, exported, fixture in zip(
+                models, payload["fixtures"][-2:], imported.fixtures[-2:], strict=True
+            ):
+                with self.subTest(model=model):
+                    self.assertEqual(exported["model"], model)
+                    self.assertEqual(exported["capabilities"], ["brightness", "color_temp"])
+                    self.assertEqual(fixture["model"], model)
+                    self.assertEqual(fixture["supported_color_modes"], ["color_temp"])
+
     def test_catalog_resolves_verge_max_by_id_code_and_name(self) -> None:
         for lookup in (
             {"product_id": 105},
