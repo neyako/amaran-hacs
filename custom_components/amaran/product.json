@@ -1,632 +1,1080 @@
 [
-      {
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "00005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182648.png",
         "id": 1,
         "name": "LS C300d II",
-        "hex": "00005",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182648.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000D5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182714.png",
         "id": 2,
         "name": "LS 600X Pro",
-        "hex": "000D5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182714.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40075",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182729.png",
         "id": 3,
         "name": "amaran COB 60x",
-        "hex": "40075",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182729.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40015",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182746.png",
         "id": 4,
         "name": "amaran P60c",
-        "hex": "40015",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182746.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40055",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182819.png",
         "id": 6,
         "name": "amaran 200x",
-        "hex": "40055",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182819.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000C5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240823110209.png",
         "id": 7,
         "name": "LS 600d",
-        "hex": "000C5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "000B5",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
         "id": 8,
         "name": "LS 350d",
-        "hex": "000B5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "05006",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182937.png",
         "id": 11,
         "name": "MC",
-        "hex": "05006",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182937.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816182955.png",
         "id": 12,
         "name": "amaran P60x",
-        "hex": "40005",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816182955.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400O5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183011.png",
         "id": 13,
         "name": "amaran 100x S",
-        "hex": "400O5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183011.png",
-        "public_version": 100
-      },
-      {
+        "hex": "20005",
+        "icon_url_amaran": "",
         "id": 15,
         "name": "SGC-H60",
-        "hex": "20005",
+        "public_version": 130,
+        "series_name": "SGC-Tube",
+        "vendor_name": "SGC"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "400A5",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
         "id": 18,
         "name": "amaran F7c",
-        "hex": "400A5",
+        "public_version": 130,
+        "series_name": "LED Mats",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "400K5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183040.png",
         "id": 19,
         "name": "amaran 300c",
-        "hex": "400K5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183040.png",
-        "public_version": 100
-      },
-      {
-        "id": 20,
-        "name": "amaran Ace 25x",
-        "hex": "400T5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "04005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183058.png",
         "id": 21,
         "name": "B7c",
-        "hex": "04005",
+        "public_version": 130,
+        "series_name": "Accent",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183058.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00075",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183113.png",
         "id": 22,
         "name": "LS 60d",
-        "hex": "00075",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183113.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000E5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183128.png",
         "id": 23,
         "name": "LS 1200d Pro",
-        "hex": "000E5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183128.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400C5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183204.png",
         "id": 25,
         "name": "amaran F21c",
-        "hex": "400C5",
+        "public_version": 130,
+        "series_name": "LED Mats",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183204.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400G5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183219.png",
         "id": 26,
         "name": "amaran PT1c",
-        "hex": "400G5",
+        "public_version": 130,
+        "series_name": "Tubes",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183219.png",
-        "public_version": 100
-      },
-      {
-        "id": 27,
-        "name": "Storm 1000c",
-        "hex": "000P5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "EM015",
+        "icon_url_amaran": "",
         "id": 28,
         "name": "Motorized F14 Fresnel",
-        "hex": "EM015",
+        "public_version": 130,
+        "series_name": "Motorized",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "40085",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183142.png",
         "id": 32,
         "name": "amaran T2c ",
-        "hex": "40085",
+        "public_version": 130,
+        "series_name": "Tubes",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183142.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00035",
+        "icon_url_amaran": "",
         "id": 33,
         "name": "LS 150x",
-        "hex": "00035",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "00065",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
         "id": 34,
         "name": "LS 1500d",
-        "hex": "00065",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
-        "id": 35,
-        "name": "amaran Go",
-        "hex": "400V5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
-        "id": 39,
-        "name": "INFINIMAT 16",
         "hex": "09015",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183304.png",
+        "id": 39,
+        "name": "INFINIMAT 16",
+        "public_version": 130,
+        "series_name": "INFINIMAT",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183304.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00015",
+        "icon_url_amaran": "",
         "id": 40,
         "name": "LS 50d",
-        "hex": "00015",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "02035",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183330.png",
         "id": 41,
         "name": "Nova P600C",
-        "hex": "02035",
+        "public_version": 130,
+        "series_name": "Nova",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183330.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000G5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183346.png",
         "id": 42,
         "name": "LS 600c Pro",
-        "hex": "000G5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183346.png",
-        "public_version": 100
-      },
-      {
+        "hex": "05010",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183401.png",
         "id": 44,
         "name": "MC Pro",
-        "hex": "05010",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183401.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400N5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183414.png",
         "id": 45,
         "name": "amaran 100d S",
-        "hex": "400N5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183414.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400S5",
+        "icon_url_amaran": "",
         "id": 46,
         "name": "amaran P40x",
-        "hex": "400S5",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "00055",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183440.png",
         "id": 47,
         "name": "LS 600d Pro",
-        "hex": "00055",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183440.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400D5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183455.png",
         "id": 48,
         "name": "amaran F22x",
-        "hex": "400D5",
+        "public_version": 130,
+        "series_name": "LED Mats",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183455.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000J5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183509.png",
         "id": 49,
         "name": "Electro Storm XT26",
-        "hex": "000J5",
+        "public_version": 130,
+        "series_name": "Electro Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183509.png",
-        "public_version": 100
-      },
-      {
-        "id": 50,
-        "name": "Storm 1200x",
-        "hex": "000M5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400E5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183526.png",
         "id": 52,
         "name": "amaran F22c",
-        "hex": "400E5",
+        "public_version": 130,
+        "series_name": "LED Mats",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183526.png",
-        "public_version": 100
-      },
-      {
-        "id": 53,
-        "name": "amaran 60d S",
-        "hex": "400L5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183542.png",
-        "public_version": 100
-      },
-      {
-        "id": 54,
-        "name": "INFINIMAT 4",
         "hex": "09005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183556.png",
+        "id": 54,
+        "name": "INFINIMAT 4",
+        "public_version": 130,
+        "series_name": "INFINIMAT",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183556.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00045",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183622.png",
         "id": 56,
         "name": "LS 300x",
-        "hex": "00045",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183622.png",
-        "public_version": 100
-      },
-      {
+        "hex": "20025",
+        "icon_url_amaran": "",
         "id": 57,
         "name": "SGC-P60",
-        "hex": "20025",
+        "public_version": 130,
+        "series_name": "SGC-Tube",
+        "vendor_name": "SGC"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "02005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183638.png",
         "id": 61,
         "name": "Nova P300c",
-        "hex": "02005",
+        "public_version": 130,
+        "series_name": "Nova",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183638.png",
-        "public_version": 100
-      },
-      {
+        "hex": "20015",
+        "icon_url_amaran": "",
         "id": 63,
         "name": "SGC-H120",
-        "hex": "20015",
+        "public_version": 130,
+        "series_name": "SGC-Tube",
+        "vendor_name": "SGC"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "40035",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183654.png",
         "id": 64,
         "name": "amaran 100x",
-        "hex": "40035",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183654.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000K5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183709.png",
         "id": 65,
         "name": "Electro Storm CS15",
-        "hex": "000K5",
+        "public_version": 130,
+        "series_name": "Electro Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183709.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00085",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183736.png",
         "id": 67,
         "name": "LS 60x",
-        "hex": "00085",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183736.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40095",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183751.png",
         "id": 68,
         "name": "amaran T4c ",
-        "hex": "40095",
+        "public_version": 130,
+        "series_name": "Tubes",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183751.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000L5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183838.png",
         "id": 69,
         "name": "LS 600c Pro II",
-        "hex": "000L5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183838.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400P5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183856.png",
         "id": 71,
         "name": "amaran 200d S",
-        "hex": "400P5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183856.png",
-        "public_version": 100
-      },
-      {
+        "hex": "05008",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183909.png",
         "id": 72,
         "name": "MC",
-        "hex": "05008",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183909.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40045",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183927.png",
         "id": 74,
         "name": "amaran 200d",
-        "hex": "40045",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183927.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400I5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183943.png",
         "id": 75,
         "name": "amaran PT4c",
-        "hex": "400I5",
+        "public_version": 130,
+        "series_name": "Tubes",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183943.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400J5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816183959.png",
         "id": 76,
         "name": "amaran 150c",
-        "hex": "400J5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816183959.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400R5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184013.png",
         "id": 77,
         "name": "amaran 200c",
-        "hex": "400R5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184013.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000F5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184026.png",
         "id": 80,
         "name": "MT Pro",
-        "hex": "000F5",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184026.png",
-        "public_version": 100
-      },
-      {
+        "hex": "000I5",
+        "icon_url_amaran": "",
         "id": 81,
         "name": "LS 1500x Pro",
-        "hex": "000I5",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "00095",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
         "id": 83,
         "name": "LS 600x",
-        "hex": "00095",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "400B5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184102.png",
         "id": 84,
         "name": "amaran F21x",
-        "hex": "400B5",
+        "public_version": 130,
+        "series_name": "LED Mats",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184102.png",
-        "public_version": 100
-      },
-      {
-        "id": 85,
-        "name": "INFINIBAR  PB3",
         "hex": "07006",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184115.png",
+        "id": 85,
+        "name": "INFINIBAR PB3",
+        "public_version": 130,
+        "series_name": "INFINIBAR",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184115.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400Q5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184128.png",
         "id": 86,
         "name": "amaran 200x S",
-        "hex": "400Q5",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184128.png",
-        "public_version": 100
-      },
-      {
-        "id": 87,
-        "name": "Storm 80c",
-        "hex": "000N5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40025",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184152.png",
         "id": 90,
         "name": "amaran 100d",
-        "hex": "40025",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184152.png",
-        "public_version": 100
-      },
-      {
-        "id": 91,
-        "name": "amaran Ace 25c",
-        "hex": "400U5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400Y5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250423094231.png",
         "id": 94,
         "name": "amaran Verge",
-        "hex": "400Y5",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "00025",
+        "icon_url_amaran": "",
         "id": 95,
         "name": "LS 50x",
-        "hex": "00025",
+        "public_version": 130,
+        "series_name": "Light Storm",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "05005",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184219.png",
         "id": 96,
         "name": "MC",
-        "hex": "05005",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184219.png",
-        "public_version": 100
-      },
-      {
+        "hex": "05007",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184231.png",
         "id": 97,
         "name": "MC",
-        "hex": "05007",
+        "public_version": 130,
+        "series_name": "Mini",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184231.png",
-        "public_version": 100
-      },
-      {
-        "id": 98,
-        "name": "INFINIBAR  PB12",
         "hex": "07008",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184245.png",
+        "id": 98,
+        "name": "INFINIBAR PB12",
+        "public_version": 130,
+        "series_name": "INFINIBAR",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184245.png",
-        "public_version": 100
-      },
-      {
+        "hex": "20035",
+        "icon_url_amaran": "",
         "id": 100,
         "name": "SGC-P120",
-        "hex": "20035",
+        "public_version": 130,
+        "series_name": "SGC-Tube",
+        "vendor_name": "SGC"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "400F5",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
         "id": 101,
         "name": "amaran SM5c",
-        "hex": "400F5",
+        "public_version": 130,
+        "series_name": "Other",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "400H5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184337.png",
         "id": 102,
         "name": "amaran PT2c",
-        "hex": "400H5",
+        "public_version": 130,
+        "series_name": "Tubes",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184337.png",
-        "public_version": 100
-      },
-      {
-        "id": 103,
-        "name": "amaran 60x S",
-        "hex": "400M5",
-        "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184350.png",
-        "public_version": 100
-      },
-      {
+        "hex": "EM005",
+        "icon_url_amaran": "",
         "id": 104,
         "name": "Motorized Yoke",
-        "hex": "EM005",
+        "public_version": 130,
+        "series_name": "Motorized",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "400Z5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250423094250.png",
         "id": 105,
         "name": "amaran Verge Max",
-        "hex": "400Z5",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/static/fixtures_icon/icons/general_newlight.png",
-        "public_version": 100
-      },
-      {
+        "hex": "40065",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184406.png",
         "id": 106,
         "name": "amaran COB 60d",
-        "hex": "40065",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184406.png",
-        "public_version": 100
-      },
-      {
-        "id": 107,
-        "name": "INFINIBAR  PB6",
         "hex": "07007",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240816184426.png",
+        "id": 107,
+        "name": "INFINIBAR PB6",
+        "public_version": 130,
+        "series_name": "INFINIBAR",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "https://d8ao2pdw51vzz.cloudfront.net/media/public/PICTURE_20240816184426.png",
-        "public_version": 100
-      },
-      {
+        "hex": "400W5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250325173759.png",
         "id": 647,
         "name": "amaran Pano 60c",
-        "hex": "400W5",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
-        "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
+        "hex": "400X5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250325173808.png",
         "id": 648,
         "name": "amaran Pano 120c",
-        "hex": "400X5",
+        "public_version": 130,
+        "series_name": "Panels",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
         "authorized_amaran": true,
+        "hex": "400T5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240925112403.png",
+        "id": 1215,
+        "name": "amaran Ace 25x",
+        "public_version": 130,
+        "series_name": "Mini Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "400V5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20241018105029.png",
+        "id": 1229,
+        "name": "amaran Go",
+        "public_version": 130,
+        "series_name": "Mini Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "400L5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240926194245.png",
+        "id": 1238,
+        "name": "amaran 60d S",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "400M5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240926194324.png",
+        "id": 1241,
+        "name": "amaran 60x S",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000P5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20241113150248.png",
+        "id": 1249,
+        "name": "STORM 1000c",
+        "public_version": 130,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000M5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240822100724.png",
+        "id": 1272,
+        "name": "STORM 1200x",
+        "public_version": 130,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000N5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20241113150258.png",
+        "id": 1275,
+        "name": "STORM 80c",
+        "public_version": 130,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "400U5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20240925112334.png",
+        "id": 1293,
+        "name": "amaran Ace 25c",
+        "public_version": 130,
+        "series_name": "Mini Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000R5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250423104308.png",
+        "id": 1294,
+        "name": "STORM XT52",
+        "public_version": 130,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000Q5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250801114458.png",
+        "id": 1295,
+        "name": "STORM 400x",
+        "public_version": 130,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "40195",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250610155157.png",
+        "id": 1296,
+        "name": "amaran 300x",
+        "public_version": 130,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "audio",
+        "authorized_amaran": true,
+        "hex": "40105",
         "icon_url_amaran": "",
-        "public_version": 100
-      },
-      {
-        "name": "amaran Ray 60c"
-      },
-      {
-        "name": "amaran Ray 120c"
-      }
-    ]
+        "id": 1298,
+        "name": "amaran Tag RX",
+        "public_version": 130,
+        "series_name": "Other",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "audio",
+        "authorized_amaran": true,
+        "hex": "40115",
+        "icon_url_amaran": "",
+        "id": 1299,
+        "name": "amaran Tag TX",
+        "public_version": 130,
+        "series_name": "Other",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "02065",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250917102445.png",
+        "id": 1300,
+        "name": "NOVA II 2x1",
+        "public_version": 136,
+        "series_name": "Nova",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "40165",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250911201041.png",
+        "id": 1302,
+        "name": "amaran Ray 120c",
+        "public_version": 157,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "40145",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20250911201451.png",
+        "id": 1303,
+        "name": "amaran Ray 60c",
+        "public_version": 155,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "40185",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251111111744.png",
+        "id": 1304,
+        "name": "amaran Ray 360c",
+        "public_version": 151,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401A5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251111111804.png",
+        "id": 1305,
+        "name": "amaran Ray 660c",
+        "public_version": 153,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "000S5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251113154616.png",
+        "id": 1306,
+        "name": "STORM 700x",
+        "public_version": 143,
+        "series_name": "STORM",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "02085",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20260113191454.png",
+        "id": 1307,
+        "name": "NOVA II 1x1",
+        "public_version": 166,
+        "series_name": "Nova",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "02075",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20260113191514.png",
+        "id": 1311,
+        "name": "NOVA 9° 2×1",
+        "public_version": 168,
+        "series_name": "Nova",
+        "vendor_name": "Aputure"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401B5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20260303192335.png",
+        "id": 1314,
+        "name": "amaran Halo 60x",
+        "public_version": 170,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401C5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251210141223.png",
+        "id": 1315,
+        "name": "amaran Halo 100x",
+        "public_version": 159,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401D5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251210141302.png",
+        "id": 1316,
+        "name": "amaran Halo 200x",
+        "public_version": 160,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401E5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251210141339.png",
+        "id": 1317,
+        "name": "amaran Halo 300x",
+        "public_version": 161,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "fixture",
+        "authorized_amaran": true,
+        "hex": "401F5",
+        "icon_url_amaran": "https://s3.sidus.link/media/public/PICTURE_20251210141414.png",
+        "id": 1318,
+        "name": "amaran Halo 600x",
+        "public_version": 162,
+        "series_name": "COB Lights",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "camera",
+        "authorized_amaran": true,
+        "hex": "401K5",
+        "icon_url_amaran": "",
+        "id": 1321,
+        "name": "amaran Cam",
+        "public_version": 171,
+        "series_name": "Other",
+        "vendor_name": "amaran"
+    },
+    {
+        "attr_tag": "camera",
+        "authorized_amaran": true,
+        "hex": "401L5",
+        "icon_url_amaran": "",
+        "id": 1322,
+        "name": "amaran Cam+",
+        "public_version": 172,
+        "series_name": "Other",
+        "vendor_name": "amaran"
+    }
+]

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable, Mapping
+from contextlib import closing
 from functools import lru_cache
 import glob
 import json
@@ -118,7 +119,7 @@ def export_payload(db_path: Path) -> dict[str, Any]:
         raise ExportError("database path does not exist")
 
     try:
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn:
             conn.row_factory = sqlite3.Row
             mesh = load_mesh(conn)
             fixture_rows = load_fixture_rows(conn)
@@ -207,16 +208,20 @@ def fixture_payload(row: sqlite3.Row) -> dict[str, Any] | None:
     product = lookup_catalog_product(product_id=product_id, code=code, name=name)
     model = str(product.get("name") or "Unknown") if product else "Unknown"
     capabilities = (
-        catalog_capabilities(model)
+        catalog_capabilities(model, product=product)
         if product
         else [
             "brightness",
             "color_temp",
         ]
     )
+    if not capabilities:
+        return None
     return {
         "name": name or f"Amaran {model}",
         "model": model,
+        "code": code or str((product or {}).get("hex") or ""),
+        "product_id": product_id if product_id is not None else (product or {}).get("id"),
         "mac_address": mac,
         "node_address": node_address,
         "capabilities": capabilities,
@@ -245,7 +250,7 @@ def product_catalog() -> tuple[dict[str, Any], ...]:
     """Load the same product catalog bundled with the integration."""
 
     payload: Any = None
-    for path in (PRODUCT_JSON_PATH, DESKTOP_PRODUCT_JSON_PATH):
+    for path in (DESKTOP_PRODUCT_JSON_PATH, PRODUCT_JSON_PATH):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             break
@@ -300,16 +305,57 @@ def lookup_catalog_product(
     return None
 
 
-def catalog_capabilities(name: str) -> list[str]:
+@lru_cache(maxsize=1)
+def product_capabilities() -> dict[str, dict[str, Any]]:
+    """Read Desktop flags, with the shipped snapshot as the portable fallback."""
+
+    for path in (
+        DESKTOP_PRODUCT_JSON_PATH.with_name("fixture_config.json"),
+        PRODUCT_JSON_PATH.with_name("product_capabilities.json"),
+    ):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if "products" in payload:
+            products = payload["products"]
+            if not isinstance(products, dict):
+                continue
+            return {str(code).upper(): row for code, row in products.items() if isinstance(row, dict)}
+        return {
+            str(row["uuid"]).upper(): row
+            for row in payload.values()
+            if isinstance(row, dict) and row.get("attr_tag") == "fixture" and row.get("uuid")
+        }
+    try:
+        url = PRODUCT_JSON_URL.rsplit("/", 1)[0] + "/product_capabilities.json"
+        with urlopen(url, timeout=10) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+        products = payload.get("products") if isinstance(payload, dict) else None
+        if isinstance(products, dict):
+            return {str(code).upper(): row for code, row in products.items() if isinstance(row, dict)}
+    except (OSError, URLError, ValueError):
+        return {}
+    return {}
+
+
+def catalog_capabilities(name: str, *, product: dict[str, Any] | None = None) -> list[str]:
     """Map a catalog product name to import capabilities."""
 
     normalized = normalize_product_name(name)
-    if re.search(r"\b(?:motorized|yoke|fresnel)\b", normalized):
+    if (product and product.get("attr_tag", "fixture") != "fixture") or re.search(r"\b(?:motorized|yoke|fresnel)\b", normalized):
         return []
+    flags = product_capabilities().get(str((product or {}).get("hex") or "").upper())
+    if flags:
+        return ["brightness"] + [
+            mode for flag, mode in (
+                ("cct_support", "color_temp"), ("hsi_support", "hs"), ("rgb_support", "rgb"),
+            )
+            if str(flags.get(flag)) == "1"
+        ]
     compact = normalized.replace(" ", "")
-    # Match the integration's CCT-only Ray support (issue #7).
-    if compact in {"ray60c", "ray120c"}:
-        return ["brightness", "color_temp"]
     is_rgb = (
         re.search(r"\b(?:nova|mc|mt|infinimat|infinibar)\b", normalized) is not None
         or re.search(r"(?:ace|pano)?\d+c$", compact) is not None

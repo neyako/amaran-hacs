@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 import sys
@@ -33,7 +34,7 @@ REDACTED = "**REDACTED**"
 def _load_desktop_fixture(
     db_path: Path, fixture_mac: str | None
 ) -> tuple[str, str, int, dict[str, str | int | None]]:
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         if fixture_mac:
             fixture = conn.execute(
@@ -83,7 +84,7 @@ def _load_desktop_fixture(
 
 
 def _list_desktop_fixtures(db_path: Path) -> None:
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         mesh = conn.execute("select uuid, net_key, app_key from mesh").fetchall()
         print("Meshes:")

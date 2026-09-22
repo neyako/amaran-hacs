@@ -14,6 +14,7 @@ from .const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    COLOR_MODE_RGB,
     CONF_ADDRESS,
     CONF_APP_KEY,
     CONF_BATTERY_CAPABLE,
@@ -286,6 +287,8 @@ def light_capability_names(data: dict[str, Any]) -> tuple[str, ...]:
         capabilities.append("Color temperature")
     if COLOR_MODE_HS in modes:
         capabilities.append("Color/HSI")
+    if COLOR_MODE_RGB in modes:
+        capabilities.append("RGB")
     if is_battery_capable_light(data):
         capabilities.append("Battery")
     return tuple(capabilities)

@@ -1,195 +1,138 @@
-# System Effects Design
+# Built-in System Effects
 
-This spike records a build gate for Amaran system effects. It does not wire an
-effect into Home Assistant, add an entity feature, or send an effect command.
+## Implemented behavior
 
-## Target Scope
+All 33 built-in system-effect variants represented in Desktop 1.1.03 (129)
+are implemented as native HA effect presets. A light exposes only the variants
+listed by its Desktop `systemfx_*` flags and only if it supports HSI or RGB.
+Ace, Pano, and Ray color profiles expose their 12 enabled first-generation
+effects; other models have their own subsets. A catalog flag is capability
+evidence, not a physical test result.
 
-The first build should target the first-generation system-effect command family
-only: command type `0x07` on the two RGB-capable models with the strongest local
-evidence, Ace 25c (`400U5`) and Pano 60c (`400W5`). Within that family, the only
-effect with a concrete local byte layout is Candle, effect type `0x04`, plus the
-required effect-off command, effect type `0x0f`.
+Encoding is shared across all eligible HSI/RGB models; there are no Ace/T4c
+model-specific packet paths. The native **Effect preset** select entity makes
+the chooser visible directly on the device page. It mirrors the light entity
+and delegates to `light.turn_on`, so both controls use the same state and encoder.
+It displays `off` when the light is off; selecting `off` then sends no command.
 
-That makes the initial target:
+Select a preset with `light.turn_on` and `effect`. HA brightness controls its
+intensity. Brightness changes reapply the preset. `effect: off` stops the current
+generation correctly and returns to the cached plain color mode. Selecting a
+plain color also leaves effect mode. Power off preserves the selected preset
+for the next explicit turn-on. Restart restores cached state without commands.
+While the light is off, effect-off clears the cached selection without sending
+a stop packet; the following wake/color command selects the normal mode.
 
-- Ace 25c (`400U5`): Candle, then off.
-- Pano 60c (`400W5`): Candle, then off.
+This pass covers built-in presets, as requested. Pixel/music effects are out of
+scope. Per-effect parameter editors are not exposed; presets use the values
+below rather than retaining arbitrary settings made in the official app.
 
-Other first-generation effects should be added only after their APK layout and
-per-model support are recorded. Second-generation effects (`0x22` / decimal
-`34`) are deferred because their layouts carry more mode-dependent fields and
-there is no in-repo real-light capture.
+## Encoding evidence
 
-## Byte Layout
+Source: the original checkout's decompiled app classes under
+`artifacts/jadx/sources/com/sidus/link/`:
 
-All candidate effect payloads are 10-byte Sidus payloads. Byte 0 is the Sidus
-checksum set by `sidus_checksum` / `_finalize_sidus`; byte 9 is the command type.
-Bit positions below use the same little-endian integer packing style as the
-existing payload builders in `custom_components/amaran/protocol.py`.
+- `coremesh/SystemEffectPacker.java` and `libmesh/protocol/ProtocolConstant.java`
+  define command/effect IDs.
+- `libmesh/protocol/*Protocol.java`, `*Protocol2.java`, and `*Protocol3.java`
+  define exact field layouts.
+- `coremesh/*Effect.java` and `*IIEffect.java` define first/second-generation
+  preset defaults and command sequences.
 
-### Candle (`0x07` / `0x04`)
+The setter operation bit is set: wire command bytes are **0x87** and **0xa2**.
+Effect ID occupies byte 8. Every packet has the existing Sidus checksum and
+travels through the shared connection. The old research note's 0x07 off bytes
+omitted the setter bit; the implemented base stop is `96000000000000000f87`.
 
-Raw candidate expression before checksum:
+First/second-generation presets follow the effect-layer constructors, with HA
+intensity substituted. Complex presets use their default HSI mode. TV, Fire,
+and Candle I use `cct_type=0`, not a literal color temperature. Welding II's
+minimum intensity is capped at the requested maximum when dimmed.
 
-```text
-(cct << 40) | (frequency << 50) | (intensity << 54) | (0x04 << 64) | (0x07 << 72)
-```
+The SDK has no high-level generation-III preset defaults. Its encoders are
+implemented with explicitly chosen test presets: HSI hue 1, saturation 100,
+5600 K white point; frequency 5; gap values 20/60; TV/Fire hue range 1..180;
+Cop car palette 2. These values reuse the earlier preset conventions. Their
+appearance and timing require hardware validation; they are not claimed to
+match Desktop's defaults.
 
-| Byte or bits | Field | Value | Evidence |
+Paparazzi II, Welding II, and Lightning/TV/Fire/Faulty bulb III use two packets:
+parameters/intensity with state 3, then color with state 1. Gen III uses the same
+staging convention as the corresponding Gen II layout; validate that sequence
+on hardware. Stops use state 0 in the same effect family. First-generation
+stops use effect 15.
+
+The SDK's `LightMode.FIREWORKS_II` enum disagrees with its dispatcher and protocol
+class. The implementation uses protocol/dispatcher effect ID **11**.
+
+| Preset | Desktop flag | Command type | Effect ID |
 | --- | --- | --- | --- |
-| byte 0 | checksum | `sidus_checksum(payload)` | Documented by current Sidus helpers |
-| bytes 1-4 | unused / zero | `0x00` | Inferred; not described by `docs/protocol.md` |
-| bits 40-49 | CCT | 10-bit value | Documented layout; scale needs capture |
-| bits 50-53 | frequency | 4-bit value | Documented layout; range/default needs capture |
-| bits 54-63 | intensity | 10-bit value | Documented layout; range/default needs capture |
-| byte 8 | effect type | `0x04` | Documented |
-| byte 9 | command type | `0x07` | Documented |
+| Club lights | `club_lights` | `0x07` | 0 |
+| Paparazzi | `paparazzi` | `0x07` | 1 |
+| Lightning | `lightning` | `0x07` | 2 |
+| TV | `tv` | `0x07` | 3 |
+| Candle | `candle` | `0x07` | 4 |
+| Fire | `fire` | `0x07` | 5 |
+| Strobe | `strobe` | `0x07` | 6 |
+| Explosion | `explosion` | `0x07` | 7 |
+| Faulty bulb | `faulty_bulb` | `0x07` | 8 |
+| Pulsing | `pulsing` | `0x07` | 9 |
+| Welding | `welding` | `0x07` | 10 |
+| Cop car | `cop_car` | `0x07` | 11 |
+| Color chase | `color_chase` | `0x07` | 12 |
+| Party lights | `party_lights` | `0x07` | 13 |
+| Fireworks | `fireworks` | `0x07` | 14 |
+| Paparazzi II | `paparazzi_2` | `0x22` | 0 |
+| Lightning II | `lightning_2` | `0x22` | 1 |
+| TV II | `tv_2` | `0x22` | 2 |
+| Fire II | `fire_2` | `0x22` | 3 |
+| Strobe II | `strobe_2` | `0x22` | 4 |
+| Explosion II | `explosion_2` | `0x22` | 5 |
+| Faulty bulb II | `faulty_bulb_2` | `0x22` | 6 |
+| Pulsing II | `pulsing_2` | `0x22` | 7 |
+| Welding II | `welding_2` | `0x22` | 8 |
+| Cop car II | `cop_car_2` | `0x22` | 9 |
+| Party lights II | `party_lights_2` | `0x22` | 10 |
+| Fireworks II | `fireworks_2` | `0x22` | 11 |
+| Lightning III | `lightning_3` | `0x22` | 12 |
+| TV III | `tv_3` | `0x22` | 13 |
+| Fire III | `fire_3` | `0x22` | 14 |
+| Faulty bulb III | `faulty_bulb_3` | `0x22` | 15 |
+| Pulsing III | `pulsing_3` | `0x22` | 16 |
+| Cop car III | `cop_car_3` | `0x22` | 17 |
 
-The field locations are documented in `docs/protocol.md`. The safe HA-facing
-defaults, units, and exact value scaling are not captured in this checkout.
+## Readback and validation
 
-### Effect Off (`0x07` / `0x0f`)
+The device-page chooser was validated on Ace 25c and T4c on 2026-09-22:
+Fire and return to steady CCT both received confirming device reports; power-off
+updated the chooser to `off`, and choosing `off` again did not wake either light.
+The Ace UI displayed its 12 presets plus `off`. Core restart sent no controls.
 
-Raw candidate expression before checksum:
+Single-packet effect reports update the selected effect, power, and brightness.
+An effect-off report clears the effect without inventing a power or brightness
+value and leaves plain-color state assumed until a normal status report arrives.
+Multipart effect reports remain assumed because one frame cannot confirm both
+the staged intensity and active color. Unsupported color-mode variants also
+remain assumed. No synthetic confirmation is produced.
 
-```text
-(0x0f << 64) | (0x07 << 72)
-```
+Unit checks cover every preset's packet structure, brightness placement,
+stop behavior, capability filtering, restoration, mode transitions, and packet
+integrity. Generation II/III packets also match independently compiled Java
+SDK output byte for byte. These checks are not physical captures.
 
-| Byte or bits | Field | Value | Evidence |
-| --- | --- | --- | --- |
-| byte 0 | checksum | `sidus_checksum(payload)` | Documented by current Sidus helpers |
-| bytes 1-7 | unused / zero | `0x00` | Inferred; candidate encoder should keep them zero until capture proves otherwise |
-| byte 8 | effect type | `0x0f` | Documented |
-| byte 9 | command type | `0x07` | Documented |
+On 2026-09-22, the T4c confirmed all 15 first-generation presets through fresh
+device reports at 5% intensity. Each preset's reported selection and intensity
+matched the request. These checks confirm device settings; the visual appearance
+of every effect was not separately judged. No T4c-specific encoder changes were
+needed. Dimming preserved the selected Fire preset, and explicit effect-off
+returned to CCT with a confirmed report. Repeated effect-off/HSI wake requests
+and a cached Fire-to-HSI wake also passed after removing the redundant stop
+while off. Generation II/III effects still require hardware validation.
 
-The command/effect bytes are documented. Model-family behavior and any hidden
-state-reset side effects are not captured.
-
-## Per-Model Effect Side-Table
-
-Do not add effect data to `custom_components/amaran/product.json`; that file is a
-refreshable mirror of the Desktop product catalog. Per-model effects should live
-in a separate file, `custom_components/amaran/product_effects.json`, keyed by the
-same product identity used by catalog lookup. A model absent from this table
-exposes no effects.
-
-Proposed shape:
-
-```json
-{
-  "version": 1,
-  "effects_by_hex": {
-    "400U5": {
-      "product_id": null,
-      "model": "amaran Ace 25c",
-      "effect_list": ["Candle"],
-      "effects": {
-        "Candle": {
-          "generation": "first_gen",
-          "command_type": "0x07",
-          "effect_type": "0x04",
-          "encoder": "first_gen_candle",
-          "parameters": {
-            "cct": {"bits": "40..49", "evidence": "documented", "default": null},
-            "frequency": {"bits": "50..53", "evidence": "documented", "default": null},
-            "intensity": {"bits": "54..63", "evidence": "documented", "default": null}
-          },
-          "capture": null
-        }
-      }
-    }
-  }
-}
-```
-
-The future build should refuse to expose an effect whose side-table row lacks
-captured or otherwise explicitly approved defaults. `EFFECT_OFF` is not a
-separate product effect; it is the common off command used to leave an active
-effect.
-
-## Home Assistant Modeling
-
-Effects should be exposed only for a light whose model resolves to a side-table
-row with a non-empty verified `effect_list`. Those lights add
-`LightEntityFeature.EFFECT`; all other models keep their current feature set.
-
-The light entity should populate `effect_list` from the ordered side-table names.
-In `async_turn_on`, `ATTR_EFFECT` handling should:
-
-- send effect-off when the requested effect is `EFFECT_OFF`;
-- send the matched side-table encoder when the requested effect is in
-  `effect_list`;
-- reject unknown effects without falling back to a generic command.
-
-The reported active effect should be `EFFECT_OFF` when no effect is active. A
-Candle-style first-generation CCT effect should report a color-temperature mode
-while active; future HSI-style effects can choose an HS mode only when their
-layout actually carries HSI fields. Startup restoration must remain command-free:
-do not start an effect, turn a light on, or send off during Home Assistant
-startup.
-
-This follows the Home Assistant light entity contract already linked from
-`docs/protocol.md`: expose verified `effect_list` values, accept `ATTR_EFFECT`,
-report `EFFECT_OFF` when idle, and use a color mode that matches the active
-effect's color model.
-
-## Capture & Validation Procedure
-
-Before any build ships, validate at least one targeted effect on real Ace/Pano
-hardware:
-
-1. Use a light already imported with known mesh credentials and a reachable
-   Bluetooth Mesh proxy.
-2. Enable debug logging for the Amaran integration and verify the existing
-   diagnostic path by calling `amaran.request_power_status`; that service already
-   logs decrypted Mesh Proxy Data Out reports.
-3. Add local, non-shipping capture instrumentation for the same decrypt/format
-   path to record Mesh Proxy Data In writes, or use an equivalent BLE/GATT
-   capture that yields decrypted payload bytes.
-4. In the official Amaran app, trigger Candle on Ace 25c or Pano 60c.
-5. Capture the decrypted Mesh Proxy Data In write, isolate the 10-byte Sidus
-   payload, and record the full hex string.
-6. Compare the captured bytes to the documented first-generation layout:
-   command byte `0x07`, effect byte `0x04`, CCT bits `40..49`, frequency bits
-   `50..53`, intensity bits `54..63`, valid checksum in byte 0.
-7. Trigger effect off in the official app, capture the off payload, and confirm
-   command byte `0x07`, effect byte `0x0f`, and checksum.
-8. Repeat the generated payload through a capture-only branch and confirm the
-   light visibly enters and leaves the effect.
-9. Commit the captured hex, model, firmware/app version, and observed defaults
-   into the future build plan or protocol docs.
-
-The build plan is blocked until at least one targeted effect round-trips on
-hardware. A Java layout alone is not enough to ship.
-
-## Decision Record
-
-| Target | Evidence strength | Recommendation |
-| --- | --- | --- |
-| Candle on Ace 25c (`400U5`) | Byte layout documented; zero padding and defaults inferred; no capture | Design ready; build needs capture |
-| Candle on Pano 60c (`400W5`) | Byte layout documented; per-model support inferred from app/systemfx notes; no capture | Design ready; build needs capture |
-| Effect off (`0x07` / `0x0f`) | Command/effect bytes documented; model-family behavior unverified; no capture | Build only with the first captured effect |
-| Other first-generation effects | Mentioned as an app family; local decompiled sources absent | Defer until APK layout plus capture are recorded |
-| Second-generation effects (`0x22`) | Example Lightning II layout documented but mode-dependent and uncaptured | Defer |
-
-Go/no-go: the design is ready, but the build is gated on real-light capture.
-
-## Follow-Up Build Plan Outline
-
-A future `plans/0NN-effects-build.md` should:
-
-- add first-generation encoder functions in `custom_components/amaran/protocol.py`
-  with captured hex in tests;
-- add command builders in `custom_components/amaran/commands.py`;
-- add a client method that sends effect payloads without changing startup
-  behavior;
-- add `custom_components/amaran/product_effects.json` and a loader that joins by
-  catalog identity;
-- wire `effect_list`, `LightEntityFeature.EFFECT`, `ATTR_EFFECT`, and
-  `EFFECT_OFF` handling in `custom_components/amaran/light.py`;
-- add unit tests for payloads, side-table defaults, and light entity effect
-  modeling;
-- validate power, brightness, CCT, HSI, effect on/off, HA restart, proxy
-  reconnect, and ESPHome proxy restart on physical hardware.
+The same day, all 12 effects shared by Ace 25c and T4c were compared at 5%
+intensity. Every pair used byte-for-byte identical Sidus packets from this
+single encoder, and both lights returned the requested selection and intensity.
+The user also confirmed effects were visible on both. Ace effect dimming and
+effect-off to CCT passed. The differences are catalog eligibility (12 Ace versus
+15 T4c presets), not separate model-specific effect code. Random timing and
+physical appearance were not required to match exactly.

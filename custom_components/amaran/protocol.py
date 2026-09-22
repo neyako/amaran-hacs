@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from math import floor
 import re
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.cmac import CMAC
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -14,6 +16,7 @@ from .const import (
     PROXY_FILTER_TYPE_REJECT,
     SIDUS_ACCESS_OPCODE,
 )
+from .effects import decode_effect, effect_values
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _ZERO_128 = b"\x00" * 16
@@ -33,14 +36,16 @@ class MeshKeys:
 class SidusStatus:
     """Decoded Telink 0x26 status report."""
 
-    power: bool
-    brightness: int
+    power: bool | None
+    brightness: int | None
     color_temp_kelvin: int | None
     hs_color: tuple[float, float] | None
     color_mode: str
     source_address: int
     destination_address: int
     sequence: int
+    rgb_color: tuple[int, int, int] | None = None
+    effect: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,7 +100,7 @@ def _finalize_sidus(payload: bytearray) -> bytes:
 
 
 def _round_half_up(value: float) -> int:
-    return int(value + 0.5)
+    return floor(value + 0.5)
 
 
 def _clamp_intensity(intensity: int | float) -> int:
@@ -217,6 +222,20 @@ def hsi_payload_ha(
     )
 
 
+def rgb_payload_ha(*, rgb_color: tuple[int, int, int], brightness: int) -> bytes:
+    """Build native RGB using the app's RGBWProtocol RGB-only constructor."""
+
+    red, green, blue = (
+        (max(0, min(255, int(channel))) * 1000 + 254) // 255
+        for channel in rgb_color
+    )
+    value = (
+        (0x84 << 72) | (red << 62) | (green << 52) | (blue << 42)
+        | (_ha_brightness_to_intensity(brightness) << 12) | (1 << 8)
+    )
+    return _finalize_sidus(bytearray(value.to_bytes(10, "little")))
+
+
 def power_payload(on: bool) -> bytes:
     """Build the Telink on/off payload, cmd_type 0x8c."""
 
@@ -224,6 +243,15 @@ def power_payload(on: bool) -> bytes:
     payload[8] = 0x01 if on else 0x00
     payload[9] = 0x8C
     return _finalize_sidus(payload)
+
+
+def effect_payloads_ha(*, effect: str, brightness: int, stop: bool = False) -> list[bytes]:
+    """Build an app system-effect preset with HA intensity."""
+
+    return [
+        _finalize_sidus(bytearray(value.to_bytes(10, "little")))
+        for value in effect_values(effect, _ha_brightness_to_intensity(brightness), stop=stop)
+    ]
 
 
 def status_request_payload() -> bytes:
@@ -261,6 +289,57 @@ def decode_sidus_status_payload(
     low = sum(payload[index] << (index * 8) for index in range(8))
     high = payload[8] | (payload[9] << 8)
     power = bool((low >> 8) & 0x01)
+    if command in (0x07, 0x22):
+        effect = decode_effect(int.from_bytes(payload, "little"))
+        if effect is None:
+            return None
+        name, intensity = effect
+        if name == "off":
+            return SidusStatus(
+                power=None,
+                brightness=None,
+                color_temp_kelvin=None,
+                hs_color=None,
+                color_mode="effect_off",
+                source_address=source_address,
+                destination_address=destination_address,
+                sequence=sequence,
+            )
+        return SidusStatus(
+            power=power if command == 0x07 else True,
+            brightness=_intensity_to_ha_brightness(intensity),
+            color_temp_kelvin=None,
+            hs_color=None,
+            color_mode="brightness",
+            effect=name,
+            source_address=source_address,
+            destination_address=destination_address,
+            sequence=sequence,
+        )
+    if command == 0x04:
+        value = int.from_bytes(payload, "little")
+        # RGB-only HA cannot represent a report with independent white channels.
+        if (value >> 22) & 0xFFFFF:
+            return None
+        channels = tuple((value >> shift) & 0x3FF for shift in (62, 52, 42))
+        # Ace reports truncate RGB channels to 0/1, losing mixed-color values.
+        # Such replies confirm power/intensity, but cannot confirm the color.
+        # ponytail: true black also stays assumed until an unambiguous report.
+        rgb_color = (
+            tuple(_intensity_to_ha_brightness(channel) for channel in channels)
+            if max(channels) > 1 else None
+        )
+        return SidusStatus(
+            power=power,
+            brightness=_intensity_to_ha_brightness((value >> 12) & 0x3FF),
+            color_temp_kelvin=None,
+            hs_color=None,
+            rgb_color=rgb_color,
+            color_mode="rgb",
+            source_address=source_address,
+            destination_address=destination_address,
+            sequence=sequence,
+        )
     if command == 0x02:
         cct_raw = (low >> 52) & 0x3FF
         cct_flag = (low >> 42) & 0x01
@@ -313,14 +392,13 @@ def decode_sidus_power_info_payload(
     if command_type != 0x0A:
         return None
 
-    power_state = (payload[2] >> 7) & 0x01
     battery_time = payload[3] | ((payload[4] & 0x01) << 8)
     battery_percentage = (payload[4] >> 1) & 0x7F
     battery_voltage = payload[5] | (payload[6] << 8)
     external_voltage = payload[7] | (payload[8] << 8)
     operation_type = (payload[9] >> 7) & 0x01
     return SidusPowerInfo(
-        power_supply_mode="battery" if power_state else "ac",
+        power_supply_mode="ac" if external_voltage else "battery",
         battery_time_minutes=battery_time,
         battery_percentage=battery_percentage,
         battery_voltage=battery_voltage,
@@ -526,7 +604,7 @@ def decode_mesh_proxy_access(
             encrypted_network,
             None,
         )
-    except ValueError:
+    except (ValueError, InvalidTag):
         return None
     if len(network_plaintext) < 4:
         return None
@@ -552,7 +630,7 @@ def decode_mesh_proxy_access(
             lower_transport[1:],
             None,
         )
-    except ValueError:
+    except (ValueError, InvalidTag):
         return None
 
     sidus_payload = (

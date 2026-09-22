@@ -12,6 +12,7 @@ from custom_components.amaran.const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    COLOR_MODE_RGB,
     CONF_ADDRESS,
     CONF_BATTERY_CAPABLE,
     CONF_BLE_MAC,
@@ -68,11 +69,11 @@ class FixtureImportTest(unittest.TestCase):
         )
         self.assertEqual(
             by_model["amaran Ace 25c"][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
         )
         self.assertEqual(
             by_model["amaran Pano 60c"][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
         )
         self.assertEqual(by_model["amaran Ace 25c"][CONF_NODE_ADDRESS], 11)
         self.assertEqual(by_model["amaran Ace 25c"][CONF_BLE_MAC], "AA:BB:CC:DD:EE:01")
@@ -111,7 +112,7 @@ class FixtureImportTest(unittest.TestCase):
         self.assertEqual(len(imported.fixtures), 2)
         self.assertEqual(
             imported.fixtures[0][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
         )
         self.assertEqual(
             imported.fixtures[1][CONF_SUPPORTED_COLOR_MODES],
@@ -126,11 +127,11 @@ class FixtureImportTest(unittest.TestCase):
             imported = load_fixture_import(db_path)
 
         self.assertEqual(len(imported.fixtures), 1)
-        self.assertEqual(imported.fixtures[0][CONF_PRODUCT_ID], 91)
+        self.assertEqual(imported.fixtures[0][CONF_PRODUCT_ID], 1293)
         self.assertEqual(imported.fixtures[0][CONF_MODEL], "amaran Ace 25c")
         self.assertEqual(
             imported.fixtures[0][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
         )
 
     def test_paste_json_import_creates_multiple_fixtures(self) -> None:
@@ -161,7 +162,7 @@ class FixtureImportTest(unittest.TestCase):
         self.assertEqual(len(imported.fixtures), 2)
         self.assertEqual(
             imported.fixtures[0][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+            [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
         )
         self.assertEqual(
             imported.fixtures[1][CONF_SUPPORTED_COLOR_MODES],
@@ -259,7 +260,7 @@ class FixtureCapabilityTest(unittest.TestCase):
             (None, "Amaran Pano 60c"),
         ):
             profile = detect_fixture_profile(code=code, name=name)
-            self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS))
+            self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
             self.assertTrue(profile.supports_hs)
 
     def test_full_color_models_classify_as_rgb(self) -> None:
@@ -275,7 +276,7 @@ class FixtureCapabilityTest(unittest.TestCase):
                 profile = detect_fixture_profile(name=name)
 
                 self.assertEqual(
-                    profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
+                    profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB)
                 )
 
     def test_verge_and_go_stay_cct_only(self) -> None:
@@ -285,23 +286,44 @@ class FixtureCapabilityTest(unittest.TestCase):
 
                 self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
 
-    def test_ray_models_override_unverified_hs_capability(self) -> None:
+    def test_ray_models_use_desktop_hsi_capability(self) -> None:
         for model in ("amaran Ray 60c", "amaran Ray 120c"):
             for stored_model in (model, "Unknown"):
                 with self.subTest(model=model, stored_model=stored_model):
                     data = {
                         CONF_NAME: f"{model} #1",
                         CONF_MODEL: stored_model,
-                        CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+                        CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
                     }
                     profile = detect_fixture_profile(
                         name=data[CONF_NAME], model=stored_model
                     )
                     self.assertEqual(profile.model, model)
-                    self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP,))
+                    self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
                     self.assertEqual(
-                        light_capability_names(data), ("Brightness", "Color temperature")
+                        light_capability_names(data), ("Brightness", "Color temperature", "Color/HSI", "RGB")
                     )
+
+    def test_desktop_capabilities_identify_custom_named_lights(self) -> None:
+        from custom_components.amaran.product_catalog import lookup_product
+
+        for code in ("40145", "40165", "40185", "401A5"):
+            with self.subTest(code=code):
+                product = lookup_product(code=code, name="Key Light")
+                self.assertIsNotNone(product)
+                self.assertIn(COLOR_MODE_HS, product.color_modes)
+                self.assertEqual((product.min_color_temp_kelvin, product.max_color_temp_kelvin), (1800, 20000))
+        basic = lookup_product(code="40015")
+        self.assertIn(COLOR_MODE_HS, basic.color_modes)
+        self.assertFalse(basic.supports_rgb)
+        bicolor = lookup_product(code="400O5")
+        self.assertNotIn(COLOR_MODE_HS, bicolor.color_modes)
+        self.assertEqual((bicolor.min_color_temp_kelvin, bicolor.max_color_temp_kelvin), (2700, 6500))
+
+    def test_desktop_cameras_and_audio_are_not_lights(self) -> None:
+        for code in ("401K5", "401L5", "40105", "40115"):
+            with self.subTest(code=code):
+                self.assertFalse(detect_fixture_profile(code=code).supported)
 
     def test_motorized_accessories_are_unsupported(self) -> None:
         for name in ("Motorized Yoke", "Motorized F14 Fresnel"):
@@ -320,16 +342,21 @@ class FixtureCapabilityTest(unittest.TestCase):
         self.assertTrue(all(p.name or p.hex_code for p in catalog))
 
     def test_product_catalog_matches_by_product_id(self) -> None:
-        profile = detect_fixture_profile(product_id=91)
+        profile = detect_fixture_profile(product_id=1293)
 
         self.assertEqual(profile.model, "amaran Ace 25c")
-        self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS))
+        self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
+
+    def test_old_desktop_product_id_still_resolves(self) -> None:
+        profile = detect_fixture_profile(product_id=91, name="Custom name")
+        self.assertEqual(profile.model, "amaran Ace 25c")
+        self.assertIn(COLOR_MODE_HS, profile.color_modes)
 
     def test_product_catalog_matches_by_hex_code(self) -> None:
         profile = detect_fixture_profile(code="400W5")
 
         self.assertEqual(profile.model, "amaran Pano 60c")
-        self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS))
+        self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
 
     def test_product_catalog_fallback_name_detects_rgb_family(self) -> None:
         for name in ("P60c", "F21c", "F22c", "PT4c", "T2c", "MC", "Nova P300c"):
@@ -337,7 +364,8 @@ class FixtureCapabilityTest(unittest.TestCase):
                 profile = detect_fixture_profile(name=name)
 
                 self.assertEqual(
-                    profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
+                    profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB)
+                    if name == "Nova P300c" else (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
                 )
 
     def test_product_catalog_fallback_name_detects_cct_family(self) -> None:
@@ -405,14 +433,14 @@ class FixtureCapabilityTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS))
+        self.assertEqual(modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
 
     def test_known_bicolor_ignores_bad_explicit_hs(self) -> None:
         modes = supported_color_modes_for_fixture(
             {
                 CONF_NAME: "amaran 60x S #1",
                 CONF_MODEL: "60x S",
-                CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS],
+                CONF_SUPPORTED_COLOR_MODES: [COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB],
             }
         )
 
@@ -439,7 +467,7 @@ class FixtureCapabilityTest(unittest.TestCase):
                     CONF_BATTERY_CAPABLE: True,
                 }
             ),
-            ("Brightness", "Color temperature", "Color/HSI", "Battery"),
+            ("Brightness", "Color temperature", "Color/HSI", "RGB", "Battery"),
         )
 
 
@@ -539,7 +567,7 @@ def _write_db_with_product_id(path: Path) -> None:
                 11,
                 "d1",
                 1,
-                91,
+                1293,
             ),
         )
         conn.commit()

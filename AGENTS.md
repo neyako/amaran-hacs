@@ -10,12 +10,13 @@ Local Home Assistant integration for Amaran/Sidus Mesh lights using:
 
 Supported:
 
-* Amaran Ace 25c
+* Amaran Ace 25c (CCT, tint, and 12 effects confirmed; RGB reports may lack usable channel values)
 * Amaran Pano 60c
+* Amaran T4c (generic HSI visually confirmed; brightness, saturation, and CCT readback confirmed)
 * Amaran 60x S
 * Amaran 100x S
 * Amaran Ray 120c (brightness, CCT, and green/magenta confirmed in issue #7)
-* Amaran Ray 60c (CCT support; hardware validation pending)
+* Amaran Ray 60c/120c/360c/660c (catalog-derived HSI/CCT+; hardware validation pending)
 
 ---
 
@@ -175,32 +176,22 @@ except in diagnostics.
 
 ### Capability Mapping
 
-RGB capable:
+Resolve capabilities from the bundled Desktop `product_capabilities.json`,
+joined to `product.json` by product code. Snapshot: Desktop 1.1.03 (129).
 
-* Ace 25c
-* Pano 60c
-
-Expose:
-
-* brightness
-* color temperature
-* HS color
-
-Bi-color only:
-
-* 60x S
-* 100x S
-
-Expose:
-
-* brightness
-* color temperature
-
-Do NOT expose HS color.
-
-Ray 60c and Ray 120c also use a CCT-only integration profile despite their
-color-capable hardware. Do not expose HS/HSI until verified. Their catalog
-entries match by name only; product IDs and codes have not been verified.
+* Basic HSI uses `hsi_support`, independently of `rgb_support` and `adv_hsi_support`.
+* Bi-color lights with `hsi_support=0` must not expose HS.
+* Ray 60c/120c/360c/660c have catalog IDs/codes and basic HSI enabled for validation.
+  Hardware validation of the newly enabled color modes remains pending.
+* CCT bounds follow each model's standard range or CCT+ extension when supported.
+* Native RGB follows `rgb_support`; keep HSI compatibility where supported.
+  Ace 25c reports reduce RGB channels to 0/1. Preserve requested colors as assumed
+  when those replies cannot confirm them; never decode them as confirmed black.
+* Built-in effect presets follow `systemfx_*` flags and the implemented encoder
+  table. New RGB/effect/HSI profiles need physical validation; see
+  `docs/effects-design.md` for generation-III and multipart-readback limits.
+* Tint follows `gm_support`.
+* Camera, audio, and motorized accessories must not create light entities.
 
 ---
 
@@ -209,10 +200,11 @@ entries match by name only; product IDs and codes have not been verified.
 product.json is authoritative for:
 
 * model identification
-* capabilities
+* display identity
 * display names
 
-Do not use it for HA branding.
+Use `product_capabilities.json` for control capabilities. Do not use either
+catalog for HA branding.
 
 ---
 
@@ -231,6 +223,11 @@ real decoded percentage. It stays unavailable until a real packet is received.
 Do not invent values.
 
 Do not fake 0% or 100%.
+
+External power is a diagnostic `plug` binary sensor based on real external
+voltage from the same report. Do not label it active charging: the report does
+not distinguish charging from a full battery. The Effect preset select mirrors
+the light entity and uses its existing service/encoder path.
 
 ---
 

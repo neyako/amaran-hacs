@@ -191,8 +191,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
-    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER)
+    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER, Platform.BINARY_SENSOR)
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    # The chooser mirrors an existing registered light, including a renamed ID.
+    await hass.config_entries.async_forward_entry_setups(entry, (Platform.SELECT,))
     _migrate_fixture_device_identifier(hass, entry, fixtures[0])
     from .sensor import async_disable_transport_sensors
 
@@ -303,10 +305,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     from homeassistant.const import Platform
 
-    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER)
+    platforms = (Platform.LIGHT, Platform.SENSOR, Platform.NUMBER, Platform.BINARY_SENSOR, Platform.SELECT)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
         clients = hass.data[DOMAIN].pop(entry.entry_id, None) or []
+        for client in clients:
+            client.async_unload()
         if clients:
             from .client import async_release_mesh_network
 

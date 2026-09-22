@@ -7,6 +7,7 @@ import sys
 import types
 from typing import Any
 import unittest
+from unittest import mock
 
 
 def _install_sensor_stubs() -> None:
@@ -59,6 +60,7 @@ def _install_sensor_stubs() -> None:
     config_entries.ConfigEntry = object
     const.PERCENTAGE = "%"
     core.HomeAssistant = object
+    core.callback = lambda fn: fn
     device_registry.CONNECTION_BLUETOOTH = "bluetooth"
     entity.EntityCategory = EntityCategory
     entity_registry.RegistryEntryDisabler = RegistryEntryDisabler
@@ -72,11 +74,43 @@ def _install_sensor_stubs() -> None:
     homeassistant.components = components
     homeassistant.helpers = helpers
 
+    binary_sensor = types.ModuleType("homeassistant.components.binary_sensor")
+    binary_sensor.BinarySensorEntity = SensorEntity
+    binary_sensor.BinarySensorDeviceClass = types.SimpleNamespace(PLUG="plug")
+    sys.modules["homeassistant.components.binary_sensor"] = binary_sensor
+    select = types.ModuleType("homeassistant.components.select")
+    select.SelectEntity = SensorEntity
+    sys.modules["homeassistant.components.select"] = select
+    light = sys.modules.setdefault(
+        "homeassistant.components.light", types.ModuleType("homeassistant.components.light")
+    )
+    light.ATTR_EFFECT = "effect"
+    light.EFFECT_OFF = "off"
+    const.STATE_OFF = "off"
+    const.STATE_UNKNOWN = "unknown"
+    const.STATE_UNAVAILABLE = "unavailable"
+    exceptions = sys.modules.setdefault(
+        "homeassistant.exceptions", types.ModuleType("homeassistant.exceptions")
+    )
+    if not hasattr(exceptions, "HomeAssistantError"):
+        exceptions.HomeAssistantError = RuntimeError
+    event = sys.modules.setdefault(
+        "homeassistant.helpers.event", types.ModuleType("homeassistant.helpers.event")
+    )
+    event.async_track_state_change_event = mock.Mock(return_value=lambda: None)
+    storage = sys.modules.setdefault(
+        "homeassistant.helpers.storage", types.ModuleType("homeassistant.helpers.storage")
+    )
+    if not hasattr(storage, "Store"):
+        storage.Store = object
+
 
 _install_sensor_stubs()
 
 from custom_components.amaran.const import CONF_BLE_MAC, CONF_NODE_ADDRESS, DOMAIN
 import custom_components.amaran.sensor as sensor_module
+import custom_components.amaran.binary_sensor as power_module
+import custom_components.amaran.select as select_module
 from custom_components.amaran.sensor import (
     AmaranSidusBatterySensor,
     AmaranSidusTransportSensor,
@@ -140,6 +174,69 @@ class SensorSetupTest(unittest.IsolatedAsyncioTestCase):
             sum(isinstance(entity, AmaranSidusBatterySensor) for entity in added),
             1,
         )
+
+    async def test_external_power_requires_real_report_and_battery_profile(self) -> None:
+        client = FakeClient()
+        client.is_available = True
+        client.battery_power_info = None
+        sensor = power_module.AmaranExternalPowerSensor(client)
+        self.assertIsNone(sensor.is_on)
+        self.assertFalse(sensor.available)
+        client.battery_power_info = {"external_voltage": 15000}
+        self.assertTrue(sensor.is_on)
+        self.assertTrue(sensor.available)
+        client.battery_power_info = {"external_voltage": 0}
+        self.assertFalse(sensor.is_on)
+        self.assertTrue(sensor.available)
+        client.is_available = False
+        self.assertFalse(sensor.available)
+        mains_client = FakeClient()
+        mains_client.battery_capable = False
+        added = []
+        await power_module.async_setup_entry(
+            types.SimpleNamespace(data={DOMAIN: {"entry": [client, mains_client]}}),
+            types.SimpleNamespace(entry_id="entry"), added.extend,
+        )
+        self.assertEqual(len(added), 1)
+
+    async def test_effect_chooser_mirrors_light_and_reuses_service_without_waking_off(self) -> None:
+        client = FakeClient()
+        client.supported_effects = ("Fire", "TV")
+        entity = select_module.AmaranEffectSelect(client)
+        light = types.SimpleNamespace(state="off", attributes={"effect": "Fire"})
+        service = mock.AsyncMock()
+        entity.hass = types.SimpleNamespace(
+            states=types.SimpleNamespace(get=lambda entity_id: light),
+            services=types.SimpleNamespace(async_call=service),
+        )
+        entity._context = object()
+        entity.async_on_remove = mock.Mock()
+        registry = types.SimpleNamespace(
+            async_get_entity_id=mock.Mock(return_value="light.renamed_ace")
+        )
+        with mock.patch.object(select_module.er, "async_get", return_value=registry):
+            await entity.async_added_to_hass()
+        self.assertEqual(entity._light_entity_id, "light.renamed_ace")
+        service.assert_not_awaited()
+        self.assertEqual(entity.current_option, "off")
+        await entity.async_select_option("off")
+        service.assert_not_awaited()
+        await entity.async_select_option("Fire")
+        service.assert_awaited_once_with(
+            "light", "turn_on", {"entity_id": "light.renamed_ace", "effect": "Fire"},
+            blocking=True, context=entity._context,
+        )
+        light.state = "on"
+        self.assertEqual(entity.current_option, "Fire")
+        light.attributes = {}
+        self.assertEqual(entity.current_option, "off")
+        with self.assertRaises(select_module.HomeAssistantError):
+            await entity.async_select_option("Unsupported")
+        light.state = "unavailable"
+        self.assertFalse(entity.available)
+        self.assertIsNone(entity.current_option)
+        with self.assertRaises(select_module.HomeAssistantError):
+            await entity.async_select_option("Fire")
 
 
 class ExistingTransportSensorMigrationTest(unittest.IsolatedAsyncioTestCase):

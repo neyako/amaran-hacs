@@ -1,4 +1,4 @@
-"""Sidus command planning for Ace light state changes."""
+"""Sidus command planning for Amaran light state changes."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from .protocol import (
     brightness_payload_ha,
     cct_payload_ha,
     hsi_payload_ha,
+    rgb_payload_ha,
     power_payload,
     power_status_request_payload,
     status_request_payload,
@@ -68,6 +69,15 @@ def brightness_cct_payloads(
         power_on=power_on,
         gm=gm,
     )
+
+
+def rgb_payloads(
+    *, brightness: int, rgb_color: tuple[int, int, int], power_on: bool = False
+) -> list[bytes]:
+    """Build native RGB payloads, optionally waking the light first."""
+
+    payload = rgb_payload_ha(brightness=brightness, rgb_color=rgb_color)
+    return [power_payload(True), payload] if power_on else [payload]
 
 
 def power_on_payloads() -> list[bytes]:

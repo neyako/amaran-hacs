@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import importlib.util
 import json
 import os
@@ -12,6 +13,7 @@ import sys
 import tempfile
 from types import ModuleType
 import unittest
+from unittest.mock import patch
 
 from custom_components.amaran.fixtures import load_fixture_import_json
 
@@ -34,12 +36,37 @@ EXPORT = _load_export_module()
 
 
 class ExportAmaranTest(unittest.TestCase):
-    def test_ray_export_and_import_keep_cct_only_capabilities(self) -> None:
+    def test_malformed_capability_metadata_falls_back_to_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            desktop = root / "desktop"
+            bundled = root / "bundled"
+            desktop.mkdir()
+            bundled.mkdir()
+            (bundled / "product_capabilities.json").write_text(
+                json.dumps({"products": {"40165": {"hsi_support": 1}}})
+            )
+            with patch.object(EXPORT, "DESKTOP_PRODUCT_JSON_PATH", desktop / "product.json"), patch.object(EXPORT, "PRODUCT_JSON_PATH", bundled / "product.json"):
+                for malformed in ([], {"products": []}):
+                    (desktop / "fixture_config.json").write_text(json.dumps(malformed))
+                    EXPORT.product_capabilities.cache_clear()
+                    self.assertEqual(EXPORT.product_capabilities(), {"40165": {"hsi_support": 1}})
+                (desktop / "fixture_config.json").write_text(json.dumps({
+                    "40165_1.0": {"uuid": "40165", "attr_tag": "fixture", "hsi_support": "1", "rgb_support": "1", "cct_support": "1"},
+                }))
+                EXPORT.product_capabilities.cache_clear()
+                self.assertEqual(
+                    EXPORT.catalog_capabilities("Custom name", product={"hex": "40165"}),
+                    ["brightness", "color_temp", "hs", "rgb"],
+                )
+            EXPORT.product_capabilities.cache_clear()
+
+    def test_ray_export_and_import_keep_hsi_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "amaran.db"
             _create_amaran_db(db_path)
             models = ("amaran Ray 60c", "amaran Ray 120c")
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 for index, model in enumerate(models, start=16):
                     conn.execute(
                         "insert into fixtures (mac_address, name, node_address) "
@@ -54,9 +81,19 @@ class ExportAmaranTest(unittest.TestCase):
             ):
                 with self.subTest(model=model):
                     self.assertEqual(exported["model"], model)
-                    self.assertEqual(exported["capabilities"], ["brightness", "color_temp"])
+                    self.assertEqual(exported["capabilities"], ["brightness", "color_temp", "hs", "rgb"])
                     self.assertEqual(fixture["model"], model)
-                    self.assertEqual(fixture["supported_color_modes"], ["color_temp"])
+                    self.assertEqual(fixture["supported_color_modes"], ["color_temp", "hs", "rgb"])
+
+    def test_export_preserves_identifiers_even_for_unknown_products(self) -> None:
+        for code, product_id in (("40165", 1302), ("FUTURE", 99999)):
+            with self.subTest(code=code):
+                exported = EXPORT.fixture_payload({
+                    "name": "Key Light", "mac_address": "AA:BB:CC:DD:EE:01",
+                    "node_address": 2, "code": code, "product_id": product_id,
+                })
+                self.assertEqual(exported["code"], code)
+                self.assertEqual(exported["product_id"], product_id)
 
     def test_catalog_resolves_verge_max_by_id_code_and_name(self) -> None:
         for lookup in (
@@ -230,7 +267,7 @@ def _touch_db(path: Path, *, mtime: int) -> None:
 
 
 def _create_amaran_db(path: Path) -> None:
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             """
             create table mesh (
