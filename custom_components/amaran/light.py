@@ -482,8 +482,19 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             effect=status.get("effect"),
             active_color_mode=(self._active_color_mode if status.get("effect") else _ha_mode_to_cached(status["color_mode"])),
         )
+        unsupported_color = (
+            status["color_mode"] in (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB)
+            and status["color_mode"] not in self._client.supported_color_modes
+            and self._active_color_mode != COLOR_MODE_BRIGHTNESS
+        )
+        if unsupported_color:
+            # The report confirms power/intensity, not the cached color mode.
+            state = replace(
+                self._cached_state(), power=state.power, brightness=state.brightness,
+                effect=None,
+            )
         incomplete_rgb = status["color_mode"] == COLOR_MODE_RGB and status.get("rgb_color") is None
-        self._apply_state(state, assumed_state=stopped or incomplete_rgb)
+        self._apply_state(state, assumed_state=stopped or incomplete_rgb or unsupported_color)
         self._schedule_state_save()
         write_state = getattr(self, "async_write_ha_state", None)
         if callable(write_state):

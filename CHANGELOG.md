@@ -20,6 +20,7 @@
 - Cancel per-light polling/subscriptions on unload without closing another
   light's shared connection.
 - Restore cached states as assumed and discard unsupported cached color modes.
+- Keep cached colors unconfirmed when a light reports an unsupported color mode.
 - Skip redundant effect-stop packets while a light is off, fixing repeated
   `effect: off` plus color wake requests on T4c.
 - Validate generic T4c HSI visually, plus brightness, 2500–7500 K CCT, signed

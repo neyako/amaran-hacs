@@ -297,17 +297,39 @@ class LightStateRestoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(light.assumed_state)
         self.assertEqual(client.calls, [])
 
-    def test_unsupported_hs_restore_and_report_keep_cct_cache(self) -> None:
+    def test_unsupported_color_reports_preserve_unconfirmed_color(self) -> None:
         client = FakeClient()
         client.supports_hs = False
         client.supported_color_modes = (COLOR_MODE_COLOR_TEMP,)
         light = AmaranSidusLight(client, object())
         light._restore_from_persistent_state({"color_mode": "hs"})
         self.assertEqual(light._active_color_mode, COLOR_MODE_COLOR_TEMP)
+        cached = light._cached_state()
+        for mode in ("hs", "rgb"):
+            light._assumed_state = False
+            light._handle_status_update({
+                "power": True, "brightness": 128, "color_mode": mode,
+                "hs_color": [45, 60], "rgb_color": [1, 2, 3],
+            })
+            self.assertEqual(light._active_color_mode, COLOR_MODE_COLOR_TEMP)
+            self.assertEqual(light._hs_color, cached.hs_color)
+            self.assertEqual(light._rgb_color, cached.rgb_color)
+            self.assertEqual(light.color_temp_kelvin, cached.color_temp_kelvin)
+            self.assertEqual(light.brightness, 128)
+            self.assertTrue(light.is_on)
+            self.assertTrue(light.assumed_state)
+
+        # A fixed-white light can still confirm power/intensity from a CCT report.
+        client.supports_color_temp = False
+        client.supported_color_modes = (COLOR_MODE_BRIGHTNESS,)
+        light = AmaranSidusLight(client, object())
         light._handle_status_update({
-            "power": True, "brightness": 128, "color_mode": "hs", "hs_color": [45, 60],
+            "power": True, "brightness": 128, "color_mode": "color_temp",
+            "color_temp_kelvin": 5600,
         })
-        self.assertEqual(light._active_color_mode, COLOR_MODE_COLOR_TEMP)
+        self.assertEqual(light.brightness, 128)
+        self.assertTrue(light.is_on)
+        self.assertFalse(light.assumed_state)
 
     async def test_startup_restores_persistent_state_without_commands(self) -> None:
         client = FakeClient()
