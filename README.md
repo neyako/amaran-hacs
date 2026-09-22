@@ -19,7 +19,7 @@ Restarting Home Assistant leaves your lights as they are.
 
 ## Setup
 
-You'll need Home Assistant with HACS, plus a Mac or Windows
+You'll need Home Assistant, plus a Mac or Windows
 computer with Python 3 and amaran Desktop installed. Your lights should already
 be added to amaran Desktop.
 
@@ -27,9 +27,35 @@ This integration needs a Bluetooth connection to the lights. If your Home Assist
 
 ### 1. Install the integration
 
-1. Open HACS, then open **Custom repositories** from its menu.
-2. Add `https://github.com/neyako/amaran-hacs` and choose **Integration**.
-3. Download **amaran** and restart Home Assistant.
+#### HACS (recommended)
+
+Install this integration with [HACS](https://hacs.xyz/) (Home Assistant Community Store).
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=neyako&repository=amaran-hacs&category=integration)
+
+<details>
+<summary>For some reasons you don't like HACS</summary>
+
+#### Manual install
+
+1. Download **Source code (zip)** from the [latest release](https://github.com/neyako/amaran-hacs/releases/latest) and extract it.
+2. Copy `custom_components/amaran` into the `custom_components` directory in your Home Assistant configuration folder (the folder containing `configuration.yaml`). Create `custom_components` if it does not exist.
+3. Restart Home Assistant, then [export your lights](#2-export-your-lights).
+
+#### CLI install
+
+1. Open a terminal in your Home Assistant configuration directory (the folder containing `configuration.yaml`).
+2. Download and extract release `v0.5.0`:
+
+   ```bash
+   mkdir -p custom_components
+   curl -fL https://github.com/neyako/amaran-hacs/archive/refs/tags/v0.5.0.tar.gz \
+     | tar -xz --strip-components=2 -C custom_components amaran-hacs-0.5.0/custom_components/amaran
+   ```
+
+3. Restart Home Assistant, then [export your lights](#2-export-your-lights).
+
+</details>
 
 ### 2. Export your lights
 
@@ -58,7 +84,9 @@ your lights from Home Assistant, as it can interfere with the connection.**
 
 ### 3. Add your lights
 
-1. In Home Assistant, go to **Settings > Devices & services > Add integration**.
+[![Add amaran to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=amaran)
+
+1. Use the button above, or go to **Settings > Devices & services > Add integration** in Home Assistant.
 2. Search for **amaran** and choose the import option.
 3. Choose JSON import and paste your export. Leave the advanced settings alone.
 4. Select the lights you want to add and submit.
@@ -76,8 +104,7 @@ Choose **off** in the dropdown to return to steady lighting. Use the light's
 power switch to turn it off completely.
 
 On supported battery-powered lights, **Diagnostic** shows the battery level
-and **External power**. **Plugged in** means a power source is connected. It
-doesn't tell you whether the battery is still charging or already full.
+and **External power**. **Plugged in** means a power source is connected.
 
 ## Supported lights
 
@@ -98,9 +125,6 @@ Other models are recognized using the light information bundled with amaran
 Desktop 1.1.03. Color controls are enabled for all 19 amaran models listed as
 supporting them, including Ray 60c, 120c, 360c, and 660c. Not every model has
 been tested with this integration yet.
-
-Pano 60c/120c and all four Ray models offer a wider white temperature range of
-1800 to 20000 K. That extended range still needs testing on real lights.
 
 ## A few things to know
 
