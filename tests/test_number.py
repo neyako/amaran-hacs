@@ -125,6 +125,7 @@ class GreenMagentaNumberTest(unittest.IsolatedAsyncioTestCase):
 
 
 class FakeClient:
+    supports_green_magenta = True
     address = "AA:BB:CC:DD:EE:01"
     ble_mac = address
     node_address = 0x000B

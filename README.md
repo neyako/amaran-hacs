@@ -1,148 +1,120 @@
-# amaran
+# amaran for Home Assistant
 
-Home Assistant custom integration for local control of supported Amaran lights
-over Bluetooth Mesh.
+Give your amaran lights Wi-Fi control through Home Assistant. Adjust the
+lighting, choose an effect, and use them in your home automations!
 
-## What It Does
+![amaran Ace 25c in Home Assistant, showing the effect preset chooser, tint, battery level, and external power](docs/images/amaran-home-assistant.png)
 
-- Adds Amaran lights to Home Assistant as light entities.
-- Controls power, brightness, color temperature, and HS color where supported.
-- Imports the Bluetooth Mesh keys and light metadata exported from amaran
-  Desktop.
-- Creates one independent Home Assistant config entry per light.
-- Uses optimistic state until the integration can decode more status data.
+## What you can control
 
-## Supported Lights
+Available controls depend on your light:
 
-Supported and community-reported models:
+- Power and brightness.
+- White light temperature, including the wider CCT+ range on supported models.
+- Color and green/magenta tint.
+- Built-in effects such as Fire, Lightning, TV, and Cop car.
+- Battery level and whether external power is connected.
 
-- amaran 100x / 100x S: brightness and color temperature
-- amaran 60x S: brightness and color temperature
-- amaran Halo 60x: reported working in [#6](https://github.com/neyako/amaran-hacs/issues/6)
-- amaran Ace 25c: brightness, color temperature, and HS color
-- amaran Pano 60c: brightness, color temperature, and HS color
-- amaran Ray 120c: brightness, color temperature (2300–10000 K), and green/magenta
-  adjustment (-10 to +10), confirmed in [#7](https://github.com/neyako/amaran-hacs/issues/7)
-- amaran Ray 60c: brightness and color temperature (hardware validation pending)
+Restarting Home Assistant leaves your lights as they are.
 
-Ray support currently excludes HS/HSI color, effects, and extended CCT+ mode.
-For automatic model recognition, keep `Ray 60c` or `Ray 120c` in the light name
-in amaran Desktop before exporting. Ray models currently match by name only.
+## Setup
 
-Unknown models default to brightness and color temperature when imported.
+You'll need Home Assistant with HACS, plus a Mac or Windows
+computer with Python 3 and amaran Desktop installed. Your lights should already
+be added to amaran Desktop.
 
-## Requirements
+This integration needs a Bluetooth connection to the lights. If your Home Assistant machine doesn't have Bluetooth, is too far from the lights, or you often move your lights around, use an [ESPHome Bluetooth Proxy](https://esphome.io/components/bluetooth_proxy/) near the lights.
 
-- Home Assistant with Bluetooth available.
-- A provisioned Amaran light already paired in the official app.
-- amaran Desktop on macOS or Windows, or a copied amaran Desktop database.
-- Export JSON with one of the commands below.
+### 1. Install the integration
 
-An ESPHome Bluetooth Proxy close to the lights is recommended for reliable
-Bluetooth coverage, especially when Home Assistant runs far from the lights.
+1. Open HACS, then open **Custom repositories** from its menu.
+2. Add `https://github.com/neyako/amaran-hacs` and choose **Integration**.
+3. Download **amaran** and restart Home Assistant.
 
-## HACS Installation
+### 2. Export your lights
 
-1. In HACS, add this repository as a custom repository.
-2. Select category `Integration`.
-3. Install `amaran`.
-4. Restart Home Assistant.
-5. Go to Settings -> Devices & services -> Add integration -> amaran.
+Run the command below on the computer where you use amaran Desktop. It reads
+your saved lights and creates the setup information Home Assistant needs.
 
-HACS installs the integration under:
-
-```text
-custom_components/amaran
-```
-
-## Export JSON Setup Flow
-
-The integration setup flow expects pasted export JSON. The export contains
-the mesh keys Home Assistant needs plus each light name, model, address, and
-capabilities.
-
-On macOS:
+**macOS:** open Terminal and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/scripts/export_amaran.py | python3 - | pbcopy
 ```
 
-On Windows PowerShell:
+The result is copied to your clipboard, ready to paste.
+
+**Windows:** open PowerShell and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/neyako/amaran-hacs/refs/heads/main/scripts/export_amaran.py | py - --output amaran-export.json
 ```
 
-If you have this repository checked out on Windows:
+Open `amaran-export.json` from the folder where you ran the command and copy
+its contents.
 
-```powershell
-py scripts\export_amaran.py
-py scripts\export_amaran.py --stdout
-py scripts\export_amaran.py --output amaran-export.json
-```
+**Close amaran Desktop before continuing. Keep it closed while controlling
+your lights from Home Assistant, as it can interfere with the connection.**
 
-This writes `amaran-export.json` in the current folder. The exporter
-automatically searches these amaran Desktop locations:
+### 3. Add your lights
 
-```text
-%APPDATA%\amaran Desktop\*_secure_id\amaran.db
-%LOCALAPPDATA%\amaran Desktop\*_secure_id\amaran.db
-%USERPROFILE%\AppData\Roaming\amaran Desktop\*_secure_id\amaran.db
-%USERPROFILE%\AppData\Local\amaran Desktop\*_secure_id\amaran.db
-```
+1. In Home Assistant, go to **Settings > Devices & services > Add integration**.
+2. Search for **amaran** and choose the import option.
+3. Choose JSON import and paste your export. Leave the advanced settings alone.
+4. Select the lights you want to add and submit.
 
-Then in Home Assistant:
+Each selected light gets its own entry. You can reuse the export later to add
+lights you skipped, or run the export again after adding new lights to Desktop.
 
-1. Add the `amaran` integration.
-2. Choose import setup.
-3. Paste the copied JSON, or open `amaran-export.json` and paste its contents.
-4. Select exactly one light.
-5. Repeat Add integration with the same JSON for each additional light.
+## Using your lights
 
-**Close amaran Desktop after setup and keep it closed while using Home Assistant.**
-This was suggested in [#6](https://github.com/neyako/amaran-hacs/issues/6) and
-confirmed to resolve unavailable lights in [#7](https://github.com/neyako/amaran-hacs/issues/7).
+Open a light's device page to find its controls. Color lights with supported
+effects have an **Effect preset** dropdown under **Controls**. Select a preset
+and use the light's brightness control to adjust it.
 
-The JSON shape also accepts a `lights` list, or the integration's native
-`fixtures` key, for compatibility with existing Amaran Bluetooth tooling.
+Choose **off** in the dropdown to return to steady lighting. Use the light's
+power switch to turn it off completely.
 
-## Security Warning
+On supported battery-powered lights, **Diagnostic** shows the battery level
+and **External power**. **Plugged in** means a power source is connected. It
+doesn't tell you whether the battery is still charging or already full.
 
-Exported JSON contains Bluetooth Mesh keys. Anyone with those keys and local
-Bluetooth access may be able to control your lights.
+## Supported lights
 
-Do not share exported JSON publicly. Do not attach it to issues, logs,
-screenshots, or support threads.
+These models have been tested or reported working by users. The table lists
+the controls checked so far, rather than every control available in the app.
 
-Diagnostics redact `net_key`, `app_key`, and pasted JSON fields.
+| Light | Checked controls |
+| --- | --- |
+| Ace 25c | Brightness, white temperature, color, tint, 12 effects, battery, and external power |
+| T4c | Brightness, white temperature, color, tint, and 15 effects |
+| Pano 60c | Brightness, white temperature, and color |
+| 60x S, 100x, 100x S | Brightness and white temperature |
+| Verge Max | Brightness and white temperature |
+| Halo 60x | Reported working ([Issue #6](https://github.com/neyako/amaran-hacs/issues/6)) |
+| Ray 120c | Brightness, white temperature, and tint ([Issue #7](https://github.com/neyako/amaran-hacs/issues/7)) |
+
+Other models are recognized using the light information bundled with amaran
+Desktop 1.1.03. Color controls are enabled for all 19 amaran models listed as
+supporting them, including Ray 60c, 120c, 360c, and 660c. Not every model has
+been tested with this integration yet.
+
+Pano 60c/120c and all four Ray models offer a wider white temperature range of
+1800 to 20000 K. That extended range still needs testing on real lights.
+
+## A few things to know
+
+- Ace 25c accepts RGB colors, but doesn't reliably report the exact color back.
+  Home Assistant keeps the color you selected.
+- Effects labeled **II** or **III** still need testing on real lights. Custom
+  pixel effects, music effects, and detailed effect settings aren't included.
+- Changes made on the light may take around 30 seconds to appear in Home
+  Assistant. Battery and plug status update about once a minute.
+
+If you run into a problem or want to add your light to the supported list, [open an issue](https://github.com/neyako/amaran-hacs/issues) with your light model and Home Assistant version.
 
 ## Credits
 
-This integration builds on public protocol research and Amaran Bluetooth tooling
-from:
-
-- [wesbos/amaran-BLE-control](https://github.com/wesbos/amaran-BLE-control)
-- [theontho/amaran-cli](https://github.com/theontho/amaran-cli)
-
-## Known Limitations
-
-- Battery is unavailable until decoded from real status data.
-- State sync is best-effort and optimistic.
-- Changes made in the official app may not instantly sync yet.
-- Bluetooth discovery is disabled intentionally. Add lights from export JSON.
-
-## Advanced Notes
-
-Manual setup is available for advanced users who already know the required
-mesh values. Prefer the JSON import flow unless you are debugging.
-
-For debug logging:
-
-```yaml
-logger:
-  logs:
-    custom_components.amaran: debug
-```
-
-The disabled diagnostic sensor and config entry diagnostics expose connection
-details for troubleshooting.
+Built with help from the research and tools in
+[wesbos/amaran-BLE-control](https://github.com/wesbos/amaran-BLE-control) and
+[theontho/amaran-cli](https://github.com/theontho/amaran-cli).

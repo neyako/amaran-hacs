@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from enum import Enum
+from enum import Enum, IntFlag
 import sys
 import time
 import types
@@ -46,9 +46,13 @@ def _install_homeassistant_stubs() -> type[Exception]:
         BRIGHTNESS = "brightness"
         COLOR_TEMP = "color_temp"
         HS = "hs"
+        RGB = "rgb"
 
     class HomeAssistantError(Exception):
         pass
+
+    class LightEntityFeature(IntFlag):
+        EFFECT = 4
 
     class LightEntity:
         pass
@@ -59,6 +63,10 @@ def _install_homeassistant_stubs() -> type[Exception]:
     light.ATTR_BRIGHTNESS = "brightness"
     light.ATTR_COLOR_TEMP_KELVIN = "color_temp_kelvin"
     light.ATTR_HS_COLOR = "hs_color"
+    light.ATTR_RGB_COLOR = "rgb_color"
+    light.ATTR_EFFECT = "effect"
+    light.EFFECT_OFF = "off"
+    light.LightEntityFeature = LightEntityFeature
     light.ColorMode = ColorMode
     light.LightEntity = LightEntity
     config_entries.ConfigEntry = object
@@ -105,11 +113,17 @@ class FakeClient:
     model = "amaran Ace 25c"
     supported_color_modes = (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS)
     supports_hs = True
+    supports_rgb = False
+    supported_effects = ()
+    desired_effect = None
     supports_color_temp = True
+    min_color_temp_kelvin = 2300
+    max_color_temp_kelvin = 10000
     desired_power = None
     desired_brightness = None
     desired_color_temp_kelvin = None
     desired_hs_color = None
+    desired_rgb_color = None
     desired_active_color_mode = COLOR_MODE_COLOR_TEMP
     capabilities = {"supported_color_modes": list(supported_color_modes)}
     data = {
@@ -145,6 +159,12 @@ class FakeClient:
 
     async def async_set_hsi(self, **kwargs: Any) -> None:
         self.calls.append(("hsi", kwargs))
+
+    async def async_set_rgb(self, **kwargs: Any) -> None:
+        self.calls.append(("rgb", kwargs))
+
+    async def async_set_effect(self, **kwargs: Any) -> None:
+        self.calls.append(("effect", kwargs))
 
     async def async_set_cct(self, **kwargs: Any) -> None:
         self.calls.append(("cct", kwargs))
@@ -199,6 +219,117 @@ class LightStateRestoreTest(unittest.IsolatedAsyncioTestCase):
         FakeStore.next_load = None
         FakeStore.saved = []
         state_store_module.Store = FakeStore
+
+    async def test_effect_restore_dimming_exit_and_rejection(self) -> None:
+        client = FakeClient()
+        client.supported_effects = ("Fire", "Strobe")
+        light = _light_for_restore(client, {
+            "power": False, "brightness": 50, "effect": "Fire", "color_mode": "hs", "hs_color": [120, 80],
+        })
+        await light.async_added_to_hass()
+        self.assertEqual(client.calls, [])
+        self.assertEqual(light.effect, "Fire")
+        await light.async_turn_on(brightness=128)
+        self.assertEqual(client.calls[-1], ("effect", {"effect": "Fire", "brightness": 128, "power_on": True}))
+        self.assertEqual(light.color_mode.value, "brightness")
+        self.assertEqual(FakeStore.saved[-1]["effect"], "Fire")
+        await light.async_turn_on(effect="off")
+        self.assertEqual(client.calls[-2][1]["effect"], "off")
+        self.assertEqual(client.calls[-1][0], "hsi")
+        self.assertEqual(light.effect, "off")
+        self.assertEqual(light.hs_color, (120.0, 80.0))
+        count = len(client.calls)
+        with self.assertRaises(HomeAssistantError):
+            await light.async_turn_on(effect="Unavailable effect")
+        self.assertEqual(len(client.calls), count)
+        light._handle_status_update({"power": True, "brightness": 90, "effect": "Strobe", "color_mode": "brightness"})
+        self.assertEqual(light.effect, "Strobe")
+        self.assertFalse(light.assumed_state)
+        light._handle_status_update({"power": None, "brightness": None, "effect": None, "color_mode": "effect_off"})
+        self.assertEqual(light.effect, "off")
+        self.assertTrue(light.is_on)
+        self.assertEqual(light.brightness, 90)
+        self.assertTrue(light.assumed_state)
+        light._handle_status_update({"power": True, "brightness": 90, "color_mode": "color_temp", "color_temp_kelvin": 3200})
+        self.assertEqual(light.effect, "off")
+
+    async def test_rgb_restore_brightness_and_mode_switch(self) -> None:
+        client = FakeClient()
+        client.supports_rgb = True
+        client.supported_color_modes = (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, "rgb")
+        light = _light_for_restore(client, {
+            "power": False, "brightness": 50, "rgb_color": [255, 128, 1], "color_mode": "rgb",
+        })
+        await light.async_added_to_hass()
+        self.assertEqual(client.calls, [])
+        self.assertEqual(light.rgb_color, (255, 128, 1))
+        await light.async_turn_on(brightness=100)
+        self.assertEqual(client.calls[-1], ("rgb", {
+            "brightness": 100, "rgb_color": (255, 128, 1), "power_on": True,
+        }))
+        self.assertEqual(light._cached_state().active_color_mode, "rgb")
+        self.assertEqual(FakeStore.saved[-1]["rgb_color"], [255, 128, 1])
+        light._handle_status_update({"power": True, "brightness": 26, "color_mode": "rgb", "rgb_color": None})
+        self.assertTrue(light.assumed_state)
+        self.assertEqual(light.rgb_color, (255, 128, 1))
+        await light.async_turn_on(brightness=13)
+        self.assertEqual(client.calls[-1][1]["rgb_color"], (255, 128, 1))
+        await light.async_turn_on(hs_color=(120, 50))
+        self.assertIsNone(light.rgb_color)
+        self.assertEqual(light.hs_color, (120.0, 50.0))
+
+    async def test_cct_extension_survives_restore_and_turn_on(self) -> None:
+        client = FakeClient()
+        client.min_color_temp_kelvin = 1800
+        client.max_color_temp_kelvin = 20000
+        light = _light_for_restore(client, {"power": False, "color_temp_kelvin": 17000})
+        await light.async_added_to_hass()
+        self.assertEqual(light.color_temp_kelvin, 17000)
+        self.assertEqual(light._attr_min_color_temp_kelvin, 1800)
+        self.assertEqual(light._attr_max_color_temp_kelvin, 20000)
+        await light.async_turn_on(color_temp_kelvin=19000)
+        self.assertEqual(client.calls[-1][1]["kelvin"], 19000)
+
+    async def test_confirmed_snapshot_needs_a_fresh_report_after_restart(self) -> None:
+        client = FakeClient()
+        light = _light_for_restore(client, {"power": True, "assumed_state": False})
+        await light.async_added_to_hass()
+        self.assertTrue(light.assumed_state)
+        self.assertEqual(client.calls, [])
+
+    def test_unsupported_color_reports_preserve_unconfirmed_color(self) -> None:
+        client = FakeClient()
+        client.supports_hs = False
+        client.supported_color_modes = (COLOR_MODE_COLOR_TEMP,)
+        light = AmaranSidusLight(client, object())
+        light._restore_from_persistent_state({"color_mode": "hs"})
+        self.assertEqual(light._active_color_mode, COLOR_MODE_COLOR_TEMP)
+        cached = light._cached_state()
+        for mode in ("hs", "rgb"):
+            light._assumed_state = False
+            light._handle_status_update({
+                "power": True, "brightness": 128, "color_mode": mode,
+                "hs_color": [45, 60], "rgb_color": [1, 2, 3],
+            })
+            self.assertEqual(light._active_color_mode, COLOR_MODE_COLOR_TEMP)
+            self.assertEqual(light._hs_color, cached.hs_color)
+            self.assertEqual(light._rgb_color, cached.rgb_color)
+            self.assertEqual(light.color_temp_kelvin, cached.color_temp_kelvin)
+            self.assertEqual(light.brightness, 128)
+            self.assertTrue(light.is_on)
+            self.assertTrue(light.assumed_state)
+
+        # A fixed-white light can still confirm power/intensity from a CCT report.
+        client.supports_color_temp = False
+        client.supported_color_modes = (COLOR_MODE_BRIGHTNESS,)
+        light = AmaranSidusLight(client, object())
+        light._handle_status_update({
+            "power": True, "brightness": 128, "color_mode": "color_temp",
+            "color_temp_kelvin": 5600,
+        })
+        self.assertEqual(light.brightness, 128)
+        self.assertTrue(light.is_on)
+        self.assertFalse(light.assumed_state)
 
     async def test_startup_restores_persistent_state_without_commands(self) -> None:
         client = FakeClient()
@@ -666,7 +797,7 @@ class ClientAvailabilityTest(unittest.TestCase):
         )
 
         self.assertIsNone(client.battery_percentage)
-        self.assertIsNone(client.battery_power_info)
+        self.assertEqual(client.battery_power_info["external_voltage"], 24000)
 
 
 class FakeMeshNetwork:

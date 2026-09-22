@@ -1,6 +1,38 @@
 # Changelog
 
-## Unreleased
+## v0.5.0
+
+- Add a native Effect preset dropdown to each supported color light's device
+  page, using the shared HSI/RGB effect encoder and model-specific preset list.
+- Add an External power indicator for battery-capable lights. Correct supply
+  detection to use reported external voltage; active charging is not reported.
+- Refresh all 98 products from Desktop 1.1.03 (129), using explicit per-model
+  HSI, CCT, RGB, tint, and effect metadata. Enable basic HSI for catalog-supported
+  color lights, including Ray 60c/120c/360c/660c, for physical validation.
+- Expose model-specific CCT limits, including 1800–20000 K CCT+ where supported.
+- Add native RGB with separate brightness, readback, and command-free restore.
+- Add all 33 built-in system-effect presets with per-model eligibility. New
+  encoders need physical validation; generation-III presets are experimental.
+- Preserve old product-ID aliases when Desktop changes IDs.
+- Preserve product IDs/codes in exports and exclude camera/audio/accessory rows.
+- Close Desktop database connections after exporting or inspecting lights.
+- Fix negative green/magenta rounding and safely ignore unauthenticated packets.
+- Cancel per-light polling/subscriptions on unload without closing another
+  light's shared connection.
+- Restore cached states as assumed and discard unsupported cached color modes.
+- Keep cached colors unconfirmed when a light reports an unsupported color mode.
+- Skip redundant effect-stop packets while a light is off, fixing repeated
+  `effect: off` plus color wake requests on T4c.
+- Validate generic T4c HSI visually, plus brightness, 2500–7500 K CCT, signed
+  tint, and all 15 first-generation effect selections through device reports.
+- Validate all 12 shared Ace 25c/T4c effects with identical packets and matching
+  device reports; confirm Ace 2300–10000 K CCT, signed tint, and effect dimming.
+- Preserve requested RGB colors when Ace replies contain only reduced 0/1
+  channel values. These reports remain assumed instead of falsely confirming
+  black and erasing the color during dimming.
+
+- Rewrite the README with simpler setup instructions, a device-page screenshot,
+  and tested-model notes including Verge Max.
 
 ## v0.4.7 - 2026-06-30
 

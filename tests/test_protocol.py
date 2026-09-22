@@ -17,6 +17,8 @@ from custom_components.amaran.protocol import (
     derive_mesh_keys,
     hsi_payload,
     hsi_payload_ha,
+    rgb_payload_ha,
+    effect_payloads_ha,
     is_proxy_filter_status,
     power_payload,
     power_status_request_payload,
@@ -78,6 +80,116 @@ class BrightnessPayloadTest(unittest.TestCase):
         )
 
 
+class RgbPayloadTest(unittest.TestCase):
+    def test_ace_truncated_rgb_captures_do_not_confirm_black(self) -> None:
+        for capture in ("ab610600000000400004", "7b610600000010000004", "6f610600000400000004"):
+            status = decode_sidus_status_payload(
+                bytes.fromhex(capture), source_address=11, destination_address=1, sequence=1,
+            )
+            self.assertTrue(status.power)
+            self.assertEqual(status.brightness, 26)
+            self.assertEqual(status.color_mode, "rgb")
+            self.assertIsNone(status.rgb_color)
+
+    def test_rgb_matches_app_scaling_layout_and_report(self) -> None:
+        payload = rgb_payload_ha(rgb_color=(255, 128, 1), brightness=128)
+        value = int.from_bytes(payload, "little")
+        self.assertEqual(payload[9], 0x84)
+        self.assertEqual(payload[0], sidus_checksum(payload))
+        self.assertEqual((value >> 8) & 0xF, 1)
+        self.assertEqual((value >> 12) & 0x3FF, 502)
+        self.assertEqual((value >> 22) & 0xFFFFF, 0)
+        self.assertEqual([(value >> shift) & 0x3FF for shift in (62, 52, 42)], [1000, 502, 4])
+        report = bytearray(payload)
+        report[9] = 0x04
+        report[0] = sidus_checksum(report)
+        status = decode_sidus_status_payload(bytes(report), source_address=11, destination_address=1, sequence=1)
+        self.assertEqual(status.rgb_color, (255, 128, 1))
+        self.assertEqual(status.brightness, 128)
+        self.assertEqual(status.color_mode, "rgb")
+        # A white-channel report cannot truthfully be represented as native RGB.
+        report[3] |= 1
+        report[0] = sidus_checksum(report)
+        self.assertIsNone(decode_sidus_status_payload(bytes(report), source_address=11, destination_address=1, sequence=2))
+
+
+class EffectPayloadTest(unittest.TestCase):
+    def test_presets_match_compiled_java_sdk_vectors(self) -> None:
+        # Offline getSendData() output from Protocol2/3 classes, not light captures.
+        # Gen III uses our documented test presets; II uses app Effect defaults.
+        vectors = {
+            "Paparazzi II": "D900000028F040DF00A2 79000000E090036400A2",
+            "Lightning II": "310070C80152857E01A2",
+            "TV II": "E380430E402B857E02A2",
+            "Fire II": "E480430E402B857E03A2",
+            "Strobe II": "6C0000871C20857E04A2",
+            "Explosion II": "6D0000871C20857E05A2",
+            "Faulty bulb II": "360070C80152857E06A2",
+            "Pulsing II": "370070C80152857E07A2",
+            "Welding II": "D2000000A06841DF08A2 A10000000090036408A2",
+            "Cop car II": "2E0000000080857E09A2",
+            "Party lights II": "8B0000005090817E0AA2",
+            "Fireworks II": "DC00000050E0817E0BA2",
+            "Lightning III": "E500000028F040DF0CA2 85000000E09003640CA2",
+            "TV III": "E600000028F040DF0DA2 B5000070C80168650DA2",
+            "Fire III": "F7000000002840DF0EA2 B6000070C80168650EA2",
+            "Faulty bulb III": "E800000028F040DF0FA2 88000000E09003640FA2",
+            "Pulsing III": "3B0070C80152807E10A2",
+            "Cop car III": "F60000000040857E11A2",
+        }
+        for name, expected in vectors.items():
+            with self.subTest(effect=name):
+                self.assertEqual(
+                    effect_payloads_ha(effect=name, brightness=255),
+                    [bytes.fromhex(packet) for packet in expected.split()],
+                )
+
+    def test_base_effect_defaults_and_off_match_sdk(self) -> None:
+        from custom_components.amaran.effects import EFFECTS
+
+        for effect in EFFECTS:
+            with self.subTest(effect=effect):
+                payload = effect_payloads_ha(effect=effect, brightness=128)[-1]
+                self.assertEqual(payload[0], sidus_checksum(payload))
+                status = decode_sidus_status_payload(payload, source_address=11, destination_address=1, sequence=1)
+                if EFFECTS[effect][4] < 0:
+                    self.assertIsNone(status)
+                    continue
+                self.assertTrue(status.power)
+                self.assertEqual(status.effect, effect)
+                self.assertEqual(status.brightness, 128)
+        candle = effect_payloads_ha(effect="Candle", brightness=255)[0]
+        value = int.from_bytes(candle, "little")
+        self.assertEqual(candle[8:], bytes([4, 0x87]))
+        self.assertEqual((value >> 40) & 0x3FF, 0)  # SDK cct_type, not kelvin
+        self.assertEqual((value >> 50) & 0xF, 5)
+        self.assertEqual((value >> 54) & 0x3FF, 1000)
+        self.assertEqual(effect_payloads_ha(effect="off", brightness=0)[0].hex(), "96000000000000000f87")
+
+    def test_unimplemented_effect_is_rejected(self) -> None:
+        with self.assertRaises(KeyError):
+            effect_payloads_ha(effect="Made up", brightness=255)
+
+    def test_multipart_staging_and_generation_specific_stops(self) -> None:
+        for name, effect_id in (("Paparazzi II", 0), ("Welding II", 8), ("Lightning III", 12), ("TV III", 13), ("Fire III", 14), ("Faulty bulb III", 15)):
+            with self.subTest(name=name):
+                payloads = effect_payloads_ha(effect=name, brightness=26)
+                self.assertEqual(len(payloads), 2)
+                staged, active = (int.from_bytes(p, "little") for p in payloads)
+                self.assertEqual((staged >> 61) & 7, 6)  # package 0, state 3
+                self.assertEqual((active >> 61) & 7, 3)  # package 1, state 1
+                self.assertEqual((staged >> 51) & 1023, 102)
+                self.assertEqual(payloads[-1][8:], bytes([effect_id, 0xA2]))
+                stopped = effect_payloads_ha(effect=name, brightness=26, stop=True)[-1]
+                self.assertEqual((int.from_bytes(stopped, "little") >> 62) & 3, 0)
+                report = decode_sidus_status_payload(stopped, source_address=11, destination_address=1, sequence=1)
+                self.assertEqual(report.color_mode, "effect_off")
+                self.assertIsNone(report.power)
+                self.assertIsNone(report.brightness)
+        off = decode_sidus_status_payload(effect_payloads_ha(effect="off", brightness=255)[0], source_address=11, destination_address=1, sequence=1)
+        self.assertEqual(off.color_mode, "effect_off")
+
+
 class CctPayloadTest(unittest.TestCase):
     """CCT payload parity with wesbos/amaran-BLE-control."""
 
@@ -108,6 +220,13 @@ class CctPayloadTest(unittest.TestCase):
         self.assertNotEqual(magenta, neutral)
         self.assertNotEqual(green, magenta)
 
+    def test_cct_signed_tint_matches_requested_offset(self) -> None:
+        for gm in (-10, -5, -1, 0, 5, 10):
+            with self.subTest(gm=gm):
+                payload = cct_payload_percent(percent=30, kelvin=5600, gm=gm)
+                encoded = (int.from_bytes(payload, "little") >> 45) & 0x7F
+                self.assertEqual(encoded - 10, gm)
+
     def test_cct_status_decode_ignores_gm(self) -> None:
         status = decode_sidus_status_payload(
             cct_payload_percent(percent=30, kelvin=5600, gm=7),
@@ -128,7 +247,7 @@ class CctPayloadTest(unittest.TestCase):
 
 
 class HsiPayloadTest(unittest.TestCase):
-    """HSI/RGB payload parity with wesbos/amaran-BLE-control."""
+    """HSI payload parity with wesbos/amaran-BLE-control."""
 
     def test_hsi_matches_reference(self) -> None:
         self.assertEqual(
@@ -168,7 +287,7 @@ class StatusPayloadTest(unittest.TestCase):
 
     def test_decode_power_info_payload_matches_sdk_bitfields(self) -> None:
         payload = _power_info_payload(
-            power_state=1,
+            power_state=0,
             battery_time=34,
             battery_percentage=53,
             battery_voltage=7420,
@@ -192,7 +311,7 @@ class StatusPayloadTest(unittest.TestCase):
 
     def test_decode_power_info_payload_handles_ac_mode(self) -> None:
         payload = _power_info_payload(
-            power_state=0,
+            power_state=1,
             battery_time=120,
             battery_percentage=100,
             battery_voltage=0,
@@ -283,6 +402,16 @@ class StatusPayloadTest(unittest.TestCase):
         self.assertEqual(decoded.destination_address, 0x000F)
         self.assertIsNotNone(decoded.sidus_status)
         self.assertEqual(decoded.sidus_status.hs_color, (45.0, 60.0))
+
+    def test_invalid_mesh_authentication_is_dropped(self) -> None:
+        packet = bytearray(build_mesh_proxy_pdu(
+            net_key=NET_KEY, app_key=APP_KEY, src=11, dst=15, seq=42,
+            iv_index=0, sidus_payload=hsi_payload(hue=45, saturation=60, intensity=800),
+        ))
+        packet[-1] ^= 1
+        self.assertIsNone(decode_mesh_proxy_access(
+            net_key=NET_KEY, app_key=APP_KEY, iv_index=0, proxy_pdu=bytes(packet),
+        ))
 
     def test_decode_mesh_proxy_access_power_info(self) -> None:
         proxy_pdu = build_mesh_proxy_pdu(

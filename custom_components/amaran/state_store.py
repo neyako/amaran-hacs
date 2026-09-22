@@ -39,6 +39,8 @@ class AmaranLightStateStore:
                 "brightness": state.brightness,
                 "color_temp_kelvin": state.color_temp_kelvin,
                 "hs_color": list(state.hs_color),
+                "rgb_color": list(state.rgb_color),
+                "effect": state.effect,
                 "color_mode": state.active_color_mode,
                 "last_updated": time.time(),
                 "assumed_state": assumed_state,

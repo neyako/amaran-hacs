@@ -18,6 +18,7 @@ from .const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    COLOR_MODE_RGB,
     CONF_ADDRESS,
     CONF_APP_KEY,
     CONF_BATTERY_CAPABLE,
@@ -25,11 +26,13 @@ from .const import (
     CONF_BLE_MAC,
     CONF_DEVICE_UUID,
     CONF_ENABLE_PRESENCE_CHECKING,
+    CONF_FIXTURE_CODE,
     CONF_IV_INDEX,
     CONF_MODEL,
     CONF_NAME,
     CONF_NET_KEY,
     CONF_NODE_ADDRESS,
+    CONF_PRODUCT_ID,
     CONF_PROXY_ADDRESS,
     CONF_PROXY_CANDIDATES,
     CONF_PROXY_MAC,
@@ -62,15 +65,21 @@ from .commands import (
     brightness_payloads,
     cct_payloads,
     hsi_payloads,
+    rgb_payloads,
     power_status_request_payloads,
     power_off_payloads,
     power_on_payloads,
     status_request_payloads,
 )
 from .fixtures import detect_fixture_profile, supported_color_modes_for_fixture
+from .effects import EFFECTS
+from .product_catalog import lookup_product
+from .state import clamp_kelvin, clamp_rgb
 from .protocol import (
     access_payload,
     normalize_hex_key,
+    effect_payloads_ha,
+    power_payload,
 )
 from .transport import (
     SidusPersistentTransport,
@@ -536,9 +545,23 @@ class AmaranSidusClient:
         self.ble_mac: str | None = self.data.get(CONF_BLE_MAC)
         self.device_uuid: str | None = self.data.get(CONF_DEVICE_UUID)
         self.name: str = self.data.get(CONF_NAME) or entry.title or DEFAULT_NAME
-        self.model: str = self.data.get(CONF_MODEL) or detect_fixture_profile(
-            name=self.name
+        self.model = detect_fixture_profile(
+            name=self.name,
+            model=self.data.get(CONF_MODEL),
+            code=self.data.get(CONF_FIXTURE_CODE),
+            product_id=self.data.get(CONF_PRODUCT_ID),
         ).model
+        self.product = lookup_product(
+            name=self.model,
+            code=self.data.get(CONF_FIXTURE_CODE),
+            product_id=self.data.get(CONF_PRODUCT_ID),
+        )
+        self.min_color_temp_kelvin = (
+            self.product.min_color_temp_kelvin if self.product else MIN_COLOR_TEMP_KELVIN
+        )
+        self.max_color_temp_kelvin = (
+            self.product.max_color_temp_kelvin if self.product else MAX_COLOR_TEMP_KELVIN
+        )
         self._supported_color_modes = supported_color_modes_for_fixture(self.data)
         self._node_address = int(self.data.get(CONF_NODE_ADDRESS, DEFAULT_NODE_ADDRESS))
         self._mesh_network = mesh_network or SidusMeshNetwork(
@@ -563,6 +586,8 @@ class AmaranSidusClient:
         self._desired_brightness: int | None = None
         self._desired_color_temp_kelvin: int | None = None
         self._desired_hs_color: tuple[float, float] | None = None
+        self._desired_rgb_color: tuple[int, int, int] | None = None
+        self._desired_effect: str | None = None
         self._desired_active_color_mode: str = COLOR_MODE_COLOR_TEMP
         self._desired_green_magenta: int = 0
         self._battery_percentage: int | None = _optional_percentage(
@@ -722,6 +747,31 @@ class AmaranSidusClient:
         return COLOR_MODE_COLOR_TEMP in self._supported_color_modes
 
     @property
+    def supports_rgb(self) -> bool:
+        return COLOR_MODE_RGB in self._supported_color_modes
+
+    @property
+    def supported_effects(self) -> tuple[str, ...]:
+        if self.product is None or not (self.supports_hs or self.supports_rgb):
+            return ()
+        flags = self.product.capabilities.get("system_effects", ())
+        return tuple(name for name, spec in EFFECTS.items() if spec[0] in flags)
+
+    @property
+    def desired_effect(self) -> str | None:
+        return self._desired_effect
+
+    @property
+    def supports_green_magenta(self) -> bool:
+        return (
+            self.product.supports_green_magenta
+            if self.product else self.supports_color_temp
+        )
+
+    def _clamp_kelvin(self, kelvin: Any) -> int:
+        return clamp_kelvin(kelvin, self.min_color_temp_kelvin, self.max_color_temp_kelvin)
+
+    @property
     def last_bluetooth_device(self) -> dict[str, Any] | None:
         """Return the last selected Bluetooth path."""
 
@@ -793,6 +843,10 @@ class AmaranSidusClient:
         """Return cached target HS color."""
 
         return self._desired_hs_color
+
+    @property
+    def desired_rgb_color(self) -> tuple[int, int, int] | None:
+        return self._desired_rgb_color
 
     @property
     def desired_active_color_mode(self) -> str:
@@ -959,6 +1013,8 @@ class AmaranSidusClient:
         brightness: int | None = None,
         kelvin: int | None = None,
         hs_color: tuple[float, float] | None = None,
+        rgb_color: tuple[int, int, int] | None = None,
+        effect: str | None = None,
         active_color_mode: str | None = None,
     ) -> None:
         """Seed the optimistic target state from Home Assistant restore data."""
@@ -968,18 +1024,22 @@ class AmaranSidusClient:
         if brightness is not None:
             self._desired_brightness = _clamp_brightness(brightness)
         if kelvin is not None:
-            self._desired_color_temp_kelvin = _clamp_kelvin(kelvin)
+            self._desired_color_temp_kelvin = self._clamp_kelvin(kelvin)
         if hs_color is not None:
             self._desired_hs_color = _clamp_hs(hs_color)
+        if rgb_color is not None:
+            self._desired_rgb_color = clamp_rgb(rgb_color)
+        self._desired_effect = effect if effect in self.supported_effects else None
         if active_color_mode in (
             COLOR_MODE_BRIGHTNESS,
             COLOR_MODE_COLOR_TEMP,
             COLOR_MODE_HS,
+            COLOR_MODE_RGB,
         ):
             self._desired_active_color_mode = active_color_mode
 
-    async def async_disconnect(self) -> None:
-        """Close transport resources."""
+    def async_unload(self) -> None:
+        """Cancel this light's subscriptions without closing the shared mesh."""
 
         self._cancel_presence_expiry()
         if self._battery_unsubscribe is not None:
@@ -991,6 +1051,11 @@ class AmaranSidusClient:
         if self._battery_poll_unsub is not None:
             self._battery_poll_unsub()
             self._battery_poll_unsub = None
+
+    async def async_disconnect(self) -> None:
+        """Close client and transport resources."""
+
+        self.async_unload()
         await self._mesh_network.async_close()
 
     async def async_request_power_status(self, *, capture_seconds: float = 10.0) -> None:
@@ -1076,7 +1141,7 @@ class AmaranSidusClient:
         """Send the Telink CCT payload carrying brightness and CCT."""
 
         brightness = _clamp_brightness(brightness)
-        kelvin = _clamp_kelvin(kelvin)
+        kelvin = self._clamp_kelvin(kelvin)
         gm_value = (
             self._desired_green_magenta if gm is None else _clamp_green_magenta(gm)
         )
@@ -1113,6 +1178,7 @@ class AmaranSidusClient:
         self._desired_color_temp_kelvin = kelvin
         self._desired_active_color_mode = COLOR_MODE_COLOR_TEMP
         self._desired_green_magenta = gm_value
+        self._desired_effect = None
 
     async def async_set_brightness(
         self, *, brightness: int, power_on: bool = False
@@ -1165,6 +1231,8 @@ class AmaranSidusClient:
             return
         if self._desired_active_color_mode != COLOR_MODE_COLOR_TEMP:
             return
+        if self._desired_effect is not None:
+            return
         if self._desired_color_temp_kelvin is None:
             return
         await self.async_set_brightness_cct(
@@ -1216,6 +1284,51 @@ class AmaranSidusClient:
         self._desired_brightness = brightness
         self._desired_hs_color = (hue, saturation)
         self._desired_active_color_mode = COLOR_MODE_HS
+        self._desired_effect = None
+
+    async def async_set_effect(
+        self, *, effect: str, brightness: int, power_on: bool = False
+    ) -> None:
+        """Send a supported system-effect preset, or leave effect mode."""
+
+        if effect != "off" and effect not in self.supported_effects:
+            raise ValueError(f"Unsupported effect: {effect}")
+        if effect == "off" and not self._desired_power:
+            # The next color command selects its mode when waking the light.
+            self._desired_effect = None
+            return
+        payloads = effect_payloads_ha(
+            effect=self._desired_effect if effect == "off" and self._desired_effect else effect,
+            brightness=brightness,
+            stop=effect == "off",
+        )
+        if power_on:
+            payloads.insert(0, power_payload(True))
+        await self.async_send_siduses(
+            payloads, first_payload_delay=_POWER_SETTLE_DELAY if power_on else 0.0,
+        )
+        self._desired_effect = None if effect == "off" else effect
+        if effect != "off":
+            self._desired_power = True
+            self._desired_brightness = _clamp_brightness(brightness)
+
+    async def async_set_rgb(
+        self, *, brightness: int, rgb_color: tuple[int, int, int], power_on: bool = False
+    ) -> None:
+        """Send native RGB with independent intensity and no white channels."""
+
+        if not self.supports_rgb:
+            raise ValueError("This light does not support native RGB")
+        brightness = _clamp_brightness(brightness)
+        rgb_color = clamp_rgb(rgb_color)
+        await self.async_send_siduses(
+            rgb_payloads(brightness=brightness, rgb_color=rgb_color, power_on=power_on),
+            first_payload_delay=_POWER_SETTLE_DELAY if power_on else 0.0,
+        )
+        self.set_cached_state(
+            power=True, brightness=brightness, rgb_color=rgb_color,
+            active_color_mode=COLOR_MODE_RGB,
+        )
 
     async def async_send_siduses(
         self, sidus_payloads: list[bytes], *, first_payload_delay: float = 0.0
@@ -1286,10 +1399,8 @@ class AmaranSidusClient:
 
         percentage = int(power_info.battery_percentage)
         mode = str(power_info.power_supply_mode)
-        if mode == "ac" and percentage == 0:
-            return
-
-        self._battery_percentage = max(0, min(100, percentage))
+        if not (mode == "ac" and percentage == 0):
+            self._battery_percentage = max(0, min(100, percentage))
         self._battery_power_info = {
             "power_supply_mode": mode,
             "battery_time_minutes": int(power_info.battery_time_minutes),
@@ -1572,10 +1683,6 @@ def _hex_byte(value: Any) -> str:
 
 def _clamp_brightness(brightness: int) -> int:
     return max(0, min(255, int(brightness)))
-
-
-def _clamp_kelvin(kelvin: int) -> int:
-    return max(MIN_COLOR_TEMP_KELVIN, min(MAX_COLOR_TEMP_KELVIN, int(kelvin)))
 
 
 def _clamp_green_magenta(value: Any) -> int:

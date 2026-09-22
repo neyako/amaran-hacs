@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
 import inspect
 import logging
 from typing import Any
@@ -12,8 +13,12 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
+    ATTR_RGB_COLOR,
+    ATTR_EFFECT,
+    EFFECT_OFF,
     ColorMode,
     LightEntity,
+    LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
@@ -28,6 +33,7 @@ from .const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    COLOR_MODE_RGB,
     DEFAULT_COLOR_TEMP_KELVIN,
     DOMAIN,
     MANUFACTURER,
@@ -38,10 +44,14 @@ from .state import (
     COMMAND_BRIGHTNESS,
     COMMAND_CCT,
     COMMAND_HSI,
+    COMMAND_RGB,
+    COMMAND_EFFECT,
     COMMAND_POWER,
     DEFAULT_HS_COLOR,
     FixtureCachedState,
     plan_turn_on,
+    clamp_kelvin,
+    clamp_rgb,
     turn_off_state,
 )
 from .fixtures import fixture_device_identifier
@@ -75,6 +85,8 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
     def __init__(self, client: AmaranSidusClient, entry: ConfigEntry) -> None:
         self._client = client
         self._entry = entry
+        self._attr_min_color_temp_kelvin = client.min_color_temp_kelvin
+        self._attr_max_color_temp_kelvin = client.max_color_temp_kelvin
         self._attr_unique_id = (
             f"{client.ble_mac or client.address}_node_{client.node_address}_"
             f"src_{client.source_address}"
@@ -86,9 +98,13 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
         if client.supports_hs:
             self._attr_supported_color_modes.add(ColorMode.HS)
+        if client.supports_rgb:
+            self._attr_supported_color_modes.add(ColorMode.RGB)
         if not self._attr_supported_color_modes:
             self._attr_supported_color_modes.add(ColorMode.COLOR_TEMP)
         self._attr_icon = _icon_for_client(client)
+        self._attr_effect_list = [EFFECT_OFF, *client.supported_effects] if client.supported_effects else None
+        self._attr_supported_features = LightEntityFeature.EFFECT if client.supported_effects else LightEntityFeature(0)
         _LOGGER.debug(
             "Light %s model=%s capabilities=%s supported_color_modes=%s",
             client.name,
@@ -106,11 +122,9 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             else DEFAULT_COLOR_TEMP_KELVIN
         )
         self._hs_color = client.desired_hs_color or DEFAULT_HS_COLOR
-        self._active_color_mode = (
-            client.desired_active_color_mode
-            if client.supports_color_temp
-            else COLOR_MODE_BRIGHTNESS
-        )
+        self._rgb_color = client.desired_rgb_color or (255, 255, 255)
+        self._effect = client.desired_effect
+        self._active_color_mode = self._supported_mode(client.desired_active_color_mode)
         self._assumed_state = True
         self._state_store: AmaranLightStateStore | None = None
         self._last_saved_state: tuple[FixtureCachedState, bool] | None = None
@@ -139,6 +153,8 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             brightness=self._brightness,
             kelvin=self._color_temp_kelvin,
             hs_color=self._hs_color,
+            rgb_color=self._rgb_color,
+            effect=self._effect,
             active_color_mode=self._active_color_mode,
         )
         self._status_unsubscribe = self._client.subscribe_status(
@@ -199,8 +215,12 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
     def color_mode(self) -> ColorMode:
         """Return current color mode."""
 
+        if self._effect is not None:
+            return ColorMode.BRIGHTNESS
         if self._active_color_mode == COLOR_MODE_HS and self._client.supports_hs:
             return ColorMode.HS
+        if self._active_color_mode == COLOR_MODE_RGB and self._client.supports_rgb:
+            return ColorMode.RGB
         if not self._client.supports_color_temp:
             return ColorMode.BRIGHTNESS
         return ColorMode.COLOR_TEMP
@@ -223,17 +243,33 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             return None
         return self._hs_color
 
+    @property
+    def rgb_color(self) -> tuple[int, int, int] | None:
+        return self._rgb_color if self.color_mode == ColorMode.RGB else None
+
+    @property
+    def effect(self) -> str | None:
+        return self._effect or (EFFECT_OFF if self._client.supported_effects else None)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light and optionally set brightness/color."""
 
         self._raise_if_unavailable()
+        requested_effect = kwargs.get(ATTR_EFFECT)
+        if requested_effect is not None and requested_effect not in (self._attr_effect_list or ()):
+            raise HomeAssistantError(f"Unsupported effect: {requested_effect}")
         plan = plan_turn_on(
             self._cached_state(),
             supports_hs=self._client.supports_hs,
             supports_color_temp=self._client.supports_color_temp,
+            supports_rgb=self._client.supports_rgb,
             brightness=kwargs.get(ATTR_BRIGHTNESS),
             kelvin=kwargs.get(ATTR_COLOR_TEMP_KELVIN),
             hs_color=kwargs.get(ATTR_HS_COLOR),
+            rgb_color=kwargs.get(ATTR_RGB_COLOR),
+            effect=requested_effect,
+            minimum_kelvin=self._attr_min_color_temp_kelvin,
+            maximum_kelvin=self._attr_max_color_temp_kelvin,
         )
 
         _LOGGER.debug(
@@ -251,7 +287,21 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             plan.state.active_color_mode,
         )
 
-        if plan.command == COMMAND_HSI:
+        if requested_effect == EFFECT_OFF or (self._effect is not None and plan.state.effect is None):
+            await self._client.async_set_effect(effect=EFFECT_OFF, brightness=plan.state.brightness)
+        if plan.command == COMMAND_EFFECT:
+            await self._client.async_set_effect(
+                effect=plan.state.effect,
+                brightness=plan.state.brightness,
+                power_on=plan.power_on,
+            )
+        elif plan.command == COMMAND_RGB:
+            await self._client.async_set_rgb(
+                brightness=plan.state.brightness,
+                rgb_color=plan.state.rgb_color,
+                power_on=plan.power_on,
+            )
+        elif plan.command == COMMAND_HSI:
             await self._client.async_set_hsi(
                 brightness=plan.state.brightness,
                 hs_color=plan.state.hs_color,
@@ -289,6 +339,8 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
             brightness=self._brightness,
             color_temp_kelvin=self._color_temp_kelvin,
             hs_color=self._hs_color,
+            rgb_color=self._rgb_color,
+            effect=self._effect,
             active_color_mode=self._active_color_mode,
         )
 
@@ -305,14 +357,18 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         self._brightness = state.brightness
         self._color_temp_kelvin = state.color_temp_kelvin
         self._hs_color = state.hs_color
-        self._active_color_mode = state.active_color_mode
+        self._rgb_color = state.rgb_color
+        self._effect = state.effect if state.effect in self._client.supported_effects else None
+        self._active_color_mode = self._supported_mode(state.active_color_mode)
         self._assumed_state = assumed_state
         self._client.set_cached_state(
             power=state.power,
             brightness=state.brightness,
             kelvin=state.color_temp_kelvin,
             hs_color=state.hs_color,
-            active_color_mode=state.active_color_mode,
+            rgb_color=state.rgb_color,
+            effect=self._effect,
+            active_color_mode=self._active_color_mode,
         )
         self._sync_attrs()
 
@@ -330,7 +386,12 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         self._attr_assumed_state = self._assumed_state
         self._attr_brightness = self._brightness
         self._attr_color_mode = self.color_mode
-        if self._attr_color_mode == ColorMode.HS:
+        self._attr_rgb_color = self.rgb_color
+        self._attr_effect = self.effect
+        if self._attr_color_mode == ColorMode.RGB:
+            self._attr_hs_color = None
+            self._attr_color_temp_kelvin = None
+        elif self._attr_color_mode == ColorMode.HS:
             self._attr_hs_color = self._hs_color
             self._attr_color_temp_kelvin = None
         elif self._attr_color_mode == ColorMode.BRIGHTNESS:
@@ -348,18 +409,23 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         if (brightness := last_state.attributes.get(ATTR_BRIGHTNESS)) is not None:
             self._brightness = _clamp_brightness(brightness)
         if (kelvin := last_state.attributes.get(ATTR_COLOR_TEMP_KELVIN)) is not None:
-            self._color_temp_kelvin = _clamp_kelvin(kelvin)
+            self._color_temp_kelvin = self._clamp_kelvin(kelvin)
         if (hs_color := last_state.attributes.get(ATTR_HS_COLOR)) is not None:
             self._hs_color = _clamp_hs(hs_color)
+        if (rgb_color := last_state.attributes.get(ATTR_RGB_COLOR)) is not None:
+            self._rgb_color = clamp_rgb(rgb_color)
+        effect = last_state.attributes.get(ATTR_EFFECT)
+        self._effect = effect if effect in self._client.supported_effects else None
         if (color_mode := last_state.attributes.get(_ATTR_COLOR_MODE)) in (
             ColorMode.BRIGHTNESS,
             ColorMode.COLOR_TEMP,
             ColorMode.HS,
+            ColorMode.RGB,
             COLOR_MODE_BRIGHTNESS,
             COLOR_MODE_COLOR_TEMP,
             COLOR_MODE_HS,
         ):
-            self._active_color_mode = _ha_mode_to_cached(color_mode)
+            self._active_color_mode = self._supported_mode(color_mode)
         self._assumed_state = True
 
     def _restore_from_persistent_state(self, data: dict[str, Any]) -> None:
@@ -367,12 +433,27 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         if (brightness := data.get("brightness")) is not None:
             self._brightness = _clamp_brightness(brightness)
         if (kelvin := data.get("color_temp_kelvin")) is not None:
-            self._color_temp_kelvin = _clamp_kelvin(kelvin)
+            self._color_temp_kelvin = self._clamp_kelvin(kelvin)
         if (hs_color := data.get("hs_color")) is not None:
             self._hs_color = _clamp_hs(hs_color)
+        if (rgb_color := data.get("rgb_color")) is not None:
+            self._rgb_color = clamp_rgb(rgb_color)
+        effect = data.get("effect")
+        self._effect = effect if effect in self._client.supported_effects else None
         if (color_mode := data.get("color_mode")) is not None:
-            self._active_color_mode = _ha_mode_to_cached(color_mode)
-        self._assumed_state = bool(data.get("assumed_state", True))
+            self._active_color_mode = self._supported_mode(color_mode)
+        self._assumed_state = True
+
+    def _supported_mode(self, value: Any) -> str:
+        mode = _ha_mode_to_cached(value)
+        if mode in self._client.supported_color_modes:
+            return mode
+        return next(iter(self._client.supported_color_modes), COLOR_MODE_COLOR_TEMP)
+
+    def _clamp_kelvin(self, kelvin: Any) -> int:
+        return clamp_kelvin(
+            kelvin, self._attr_min_color_temp_kelvin, self._attr_max_color_temp_kelvin
+        )
 
     async def _async_save_persistent_state(self) -> None:
         if self._state_store is None:
@@ -387,16 +468,33 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         )
 
     def _handle_status_update(self, status: dict[str, Any]) -> None:
-        state = FixtureCachedState(
+        if status.get("effect") and status["effect"] not in self._client.supported_effects:
+            return
+        stopped = status["color_mode"] == "effect_off"
+        state = replace(self._cached_state(), effect=None) if stopped else FixtureCachedState(
             power=bool(status["power"]),
             brightness=_clamp_brightness(status["brightness"]),
-            color_temp_kelvin=_clamp_kelvin(
+            color_temp_kelvin=self._clamp_kelvin(
                 status.get("color_temp_kelvin") or self._color_temp_kelvin
             ),
             hs_color=_clamp_hs(status.get("hs_color") or self._hs_color),
-            active_color_mode=_ha_mode_to_cached(status["color_mode"]),
+            rgb_color=clamp_rgb(status.get("rgb_color") or self._rgb_color),
+            effect=status.get("effect"),
+            active_color_mode=(self._active_color_mode if status.get("effect") else _ha_mode_to_cached(status["color_mode"])),
         )
-        self._apply_state(state, assumed_state=False)
+        unsupported_color = (
+            status["color_mode"] in (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB)
+            and status["color_mode"] not in self._client.supported_color_modes
+            and self._active_color_mode != COLOR_MODE_BRIGHTNESS
+        )
+        if unsupported_color:
+            # The report confirms power/intensity, not the cached color mode.
+            state = replace(
+                self._cached_state(), power=state.power, brightness=state.brightness,
+                effect=None,
+            )
+        incomplete_rgb = status["color_mode"] == COLOR_MODE_RGB and status.get("rgb_color") is None
+        self._apply_state(state, assumed_state=stopped or incomplete_rgb or unsupported_color)
         self._schedule_state_save()
         write_state = getattr(self, "async_write_ha_state", None)
         if callable(write_state):
@@ -422,10 +520,6 @@ def _clamp_brightness(brightness: Any) -> int:
     return max(0, min(255, int(brightness)))
 
 
-def _clamp_kelvin(kelvin: Any) -> int:
-    return max(MIN_COLOR_TEMP_KELVIN, min(MAX_COLOR_TEMP_KELVIN, int(kelvin)))
-
-
 def _clamp_hs(hs_color: Any) -> tuple[float, float]:
     hue, saturation = hs_color
     return (
@@ -435,6 +529,8 @@ def _clamp_hs(hs_color: Any) -> tuple[float, float]:
 
 
 def _ha_mode_to_cached(color_mode: Any) -> str:
+    if str(color_mode) == str(ColorMode.RGB) or color_mode == COLOR_MODE_RGB:
+        return COLOR_MODE_RGB
     if str(color_mode) == str(ColorMode.HS) or color_mode == COLOR_MODE_HS:
         return COLOR_MODE_HS
     if (
@@ -446,7 +542,7 @@ def _ha_mode_to_cached(color_mode: Any) -> str:
 
 
 def _icon_for_client(client: AmaranSidusClient) -> str:
-    if client.supports_hs:
+    if client.supports_hs or client.supports_rgb:
         return _ICON_RGB
     if client.supports_color_temp:
         return _ICON_CCT

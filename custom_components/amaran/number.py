@@ -29,7 +29,7 @@ async def async_setup_entry(
     async_add_entities(
         AmaranGreenMagentaNumber(client)
         for client in clients
-        if client.supports_color_temp
+        if client.supports_color_temp and client.supports_green_magenta
     )
 
 

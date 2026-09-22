@@ -75,7 +75,7 @@ from custom_components.amaran.commands import (
     power_status_request_payloads,
     status_request_payloads,
 )
-from custom_components.amaran.protocol import cct_payload_ha
+from custom_components.amaran.protocol import cct_payload_ha, decode_sidus_status_payload
 from custom_components.amaran.const import (
     COLOR_MODE_COLOR_TEMP,
     CONF_ADDRESS,
@@ -534,7 +534,57 @@ class FakePollHass:
         self.loop = None
 
 
+class EffectClientTest(unittest.IsolatedAsyncioTestCase):
+    async def test_model_flags_gate_effects_and_stop_uses_selected_generation(self) -> None:
+        from custom_components.amaran.effects import EFFECTS
+        from custom_components.amaran.product_catalog import product_catalog
+        from custom_components.amaran.protocol import effect_payloads_ha
+
+        catalog_flags = {
+            flag for product in product_catalog()
+            for flag in product.capabilities.get("system_effects", ())
+        }
+        self.assertEqual(catalog_flags, {spec[0] for spec in EFFECTS.values()})
+        for code, effect in (("40165", "Fire"), ("000F5", "Paparazzi II"), ("400O5", None)):
+            with self.subTest(code=code):
+                mesh = FakePollMesh(ready=True)
+                fixture = dict(_fixtures()[0], fixture_code=code, model="Unknown", name="Key Light")
+                client = AmaranSidusClient(FakePollHass(), FakeEntry(fixture), fixture, mesh_network=mesh)
+                self.assertEqual(mesh.sent, [])
+                if effect is None:
+                    self.assertEqual(client.supported_effects, ())
+                    with self.assertRaises(ValueError):
+                        await client.async_set_effect(effect="Fire", brightness=128)
+                    self.assertEqual(mesh.sent, [])
+                    continue
+                self.assertIn(effect, client.supported_effects)
+                await client.async_set_effect(effect=effect, brightness=128)
+                self.assertEqual(client.desired_effect, effect)
+                await client.async_set_effect(effect="off", brightness=128)
+                self.assertEqual(mesh.sent[-1][0], effect_payloads_ha(effect=effect, brightness=128, stop=True))
+                self.assertIsNone(client.desired_effect)
+
+                # An explicit effect-off must not precede a sleeping light's wake.
+                for cached_effect in (None, effect):
+                    client.set_cached_state(power=False, effect=cached_effect)
+                    mesh.sent.clear()
+                    await client.async_set_effect(effect="off", brightness=128)
+                    self.assertEqual(mesh.sent, [])
+                    self.assertIsNone(client.desired_effect)
+                    self.assertFalse(client.desired_power)
+
+
 class GreenMagentaClientTest(unittest.IsolatedAsyncioTestCase):
+    async def test_cct_commands_follow_model_bounds_including_extension(self) -> None:
+        for code, requested, expected in (("40165", 20000, 20000), ("40165", 1800, 1800), ("400O5", 20000, 6500)):
+            with self.subTest(code=code, kelvin=requested):
+                mesh = FakePollMesh(ready=True)
+                fixture = dict(_fixtures()[0], fixture_code=code, model="Unknown", name="Key Light")
+                client = AmaranSidusClient(FakePollHass(), FakeEntry(fixture), fixture, mesh_network=mesh)
+                await client.async_set_cct(brightness=128, kelvin=requested)
+                status = decode_sidus_status_payload(mesh.sent[-1][0][-1], source_address=2, destination_address=15, sequence=1)
+                self.assertEqual(status.color_temp_kelvin, expected)
+
     async def test_set_green_magenta_resends_cct_with_offset_when_on(self) -> None:
         mesh = FakePollMesh(ready=True)
         client = _make_cct_client(mesh)
@@ -716,6 +766,32 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         records = list(client.hass.tracked_intervals)
         await client.async_disconnect()
         self.assertTrue(records and all(record["cancelled"] for record in records))
+
+    async def test_entry_unload_cancels_client_subscriptions_before_network_release(self) -> None:
+        from custom_components.amaran import async_unload_entry
+        from custom_components.amaran.const import DOMAIN
+
+        mesh = FakePollMesh(ready=True)
+        client = self._make_client(battery_capable=True, mesh=mesh)
+        client._start_polling()
+        unsubscribe = mock.Mock()
+        client._battery_unsubscribe = unsubscribe
+        hass = types.SimpleNamespace(
+            data={DOMAIN: {"entry-1": [client], "entry-2": []}},
+            config_entries=types.SimpleNamespace(async_unload_platforms=mock.AsyncMock(return_value=True)),
+        )
+        const = types.SimpleNamespace(Platform=types.SimpleNamespace(
+            LIGHT="light", SENSOR="sensor", NUMBER="number",
+            SELECT="select", BINARY_SENSOR="binary_sensor",
+        ))
+        with mock.patch.dict(sys.modules, {"homeassistant.const": const}), mock.patch.object(
+            client_module, "async_release_mesh_network", new_callable=mock.AsyncMock
+        ) as release, mock.patch.object(mesh, "async_close", new_callable=mock.AsyncMock) as close:
+            self.assertTrue(await async_unload_entry(hass, client.entry))
+        self.assertTrue(all(record["cancelled"] for record in client.hass.tracked_intervals))
+        unsubscribe.assert_called_once()
+        release.assert_awaited_once_with(hass, client.entry, mesh)
+        close.assert_not_awaited()
 
 
 async def _wait_for(predicate: Any) -> None:

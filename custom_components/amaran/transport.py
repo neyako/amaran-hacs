@@ -546,6 +546,8 @@ class SidusBaseTransport:
             "brightness": status.brightness,
             "color_temp_kelvin": status.color_temp_kelvin,
             "hs_color": status.hs_color,
+            "rgb_color": status.rgb_color,
+            "effect": status.effect,
             "color_mode": status.color_mode,
             "source_address": status.source_address,
             "destination_address": status.destination_address,

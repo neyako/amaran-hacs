@@ -47,7 +47,8 @@ Reference command types:
 | on/off | `0x8c` |
 | brightness | `0x8f` |
 | color temperature | `0x82` |
-| HSI/RGB | `0x81` |
+| HSI | `0x81` |
+| Native RGB | `0x84` |
 
 Known sample payloads were cross-checked against public Amaran Bluetooth tooling,
 including [wesbos/amaran-BLE-control](https://github.com/wesbos/amaran-BLE-control)
@@ -178,65 +179,84 @@ persists it, and writes the HA entity state.
 | --- | --- | --- | --- |
 | Status request `0x0e` | App `LightModeProtocol`; public implementation tested against real lights | High | Already implemented byte-for-byte |
 | HSI/CCT report decode | App `parseData()` plus independently live-verified decoder | High | Existing integration decoder matches |
-| Report delivery to this HA proxy client | Live reference says replies target provisioner `0x0001`; current integration source is normally `0x000f`, has no explicit proxy-filter setup, and tests synthesize replies to `0x000f` | Unproven | Do not claim state sync yet |
+| Report delivery to this HA proxy client | The transport installs an empty reject-list proxy filter on every connection, forwarding reports regardless of destination | Implemented | Validate delivery on each new model |
 
-The delivery caveat is material: the reference implementation found that
-fixtures send replies to provisioner unicast `0x0001`, not to the requester.
-Its ESP32 integration needed a passive network-layer snoop to receive them;
-see the
-[`Two-way sync` notes](https://github.com/wesbos/amaran-BLE-control/blob/a18ca3ccacc9e8c6264eb24fc2698af4b99b834b/esp32-firmware/README.md#L142-L177).
-No `*_btatt.tsv` or other raw status capture named by the spike plan exists in
-the local `artifacts/` tree, so the Home Assistant Bluetooth Mesh Proxy
-delivery path cannot be proven from this checkout.
+The reference implementation found replies addressed to provisioner unicast
+`0x0001`, rather than the requester. The integration now sets a forward-all
+Bluetooth Mesh proxy filter on connect, polls state every 30 seconds, and polls
+battery every 60 seconds. Decoded reports are dispatched by source node address.
+No source-address change is needed. These are status requests, not startup
+power or color commands.
 
-Recommendation: make the next status-sync task a transport-focused capture
-spike. First prove whether Mesh Proxy Data Out forwards destination `0x0001`;
-if it does not, research a standards-compliant proxy filter subscription for
-`0x0001`. Do not change source addresses or add a polling loop until delivery
-is demonstrated. No production status code is added by this spike.
+External supply presence comes from `0x0a` bytes 7–8 (external voltage), matching
+the SDK's power UI. A nonzero value means external power, not necessarily active
+charging. The previous bit-23 supply interpretation was incorrect. Battery-capable
+lights expose this as a diagnostic `plug` binary sensor; it stays unavailable
+until a real power report arrives. Ace 25c reports 15000 mV while plugged in.
 
-## Effects & extended commands
+Cached state is always assumed after restart until a fresh report arrives.
+Per-light poll timers and battery subscriptions are cancelled when the entry
+unloads; other lights retain their shared connection.
 
-### Candidates
+## Effects and extended commands
 
-| Candidate | Opcode / layout | Source | Confidence | Decision |
-| --- | --- | --- | --- | --- |
-| RGB plus warm/cool white | Command type `0x04`; setter byte 9 is `0x84`. Bits `12..21` intensity, `22..31` cool white, `32..41` warm white, `42..51` blue, `52..61` green, `62..71` red; each channel is 10-bit | `artifacts/jadx/sources/com/sidus/link/libmesh/protocol/RGBWProtocol.java:22-79` and app dispatch in `DataPacker.java:55-59` | High for byte layout; low for supported simultaneous-white behavior | Defer |
-| First-generation system effects | Command type `0x07`; byte 8 is effect type. Example: Candle effect type `0x04`, then CCT bits `40..49`, frequency bits `50..53`, intensity bits `54..63` | `CandleProtocol.java:15-63`; effect dispatch table in `SystemEffectPacker.java:96-205` | High for individual packet layouts | Defer |
-| Second-generation system effects | Command type `0x22` (`34`); byte 8 is effect type. Example: Lightning II effect type `0x01`, with state, intensity, frequency, speed, mode, and mode-dependent CCT/G/M or HSI fields | `LightningProtocol2.java:20-97`; dispatch in `SystemEffectPacker.java:207-294` | High for individual packet layouts | Defer |
-| Effect off | Command type `0x07`, effect type `0x0f` | `EffectOffProtocol.java:9-41` | High for bytes; model-family behavior unverified | Defer |
+Native RGB uses setter `0x84`, with intensity at bit 12 and RGB at bits
+62/52/42. The app's RGB constructor uses `ceil(channel * 1000 / 255)`, power
+bit 8, and zero white channels. See [native RGB and RGBWW](rgbww-design.md).
 
-The app has multiple effect protocol generations (`0x07`, `0x21`, `0x22`) and
-per-model support flags. The bundled app config marks Ace 25c (`400U5`) and
-Pano 60c (`400W5`) as `rgb_support=1`, but it does not establish that their
-warm/cool-white fields may safely be mixed with RGB. It also enables a
-model-specific subset of `systemfx_*` values. The integration's current
-`product.json` does not carry those effect-generation or effect-list fields,
-so exposing one generic list would violate the per-model evidence boundary.
+The catalog records basic HSI, native RGB, advanced HSI, CCT+, tint, and system
+effect capabilities separately. Basic HSI uses the existing common `0x81`
+packet. CCT+ uses `0x82` with the existing range bit, up to 20000 K, only on
+profiles advertising that range. Mixed RGBWW and advanced HSI are separate
+capabilities and are not inferred from a basic color flag.
 
-The desktop WebSocket API independently exposes `set_rgb`,
-`get_system_effect_list`, and `set_system_effect`, with the effect list queried
-per node rather than assumed globally; see
-[`amaran-cli` API reference](https://github.com/theontho/amaran-cli/blob/4aab857a772f4131cb40ca834c00fdaae6b84810/docs/API_REFERENCE.md#L766-L914).
-That confirms product concepts, not raw mesh bytes.
+All 33 system-effect variants have preset encoders and per-model filtering.
+Their setters use command bytes `0x87` and `0xa2`; some newer effects require
+two packets. See [built-in effects](effects-design.md) for the full mapping,
+default provenance, deliberate test presets, and readback limitations.
 
-### Home Assistant modeling
+Native RGB, CCT+, and other newly enabled profiles still need physical validation.
+The capability implementation was completed before the user disclosed the test
+model. The user subsequently selected the T4c and authorized importing its
+Desktop export; no model-specific encoder changes were made for validation.
 
-If effects are implemented later, expose only the model's verified names via
-`effect_list`, accept `ATTR_EFFECT` in `async_turn_on`, report `EFFECT_OFF` when
-no effect is active, and use an effect-appropriate color mode. This follows the
-[Home Assistant light entity contract](https://developers.home-assistant.io/docs/core/entity/light/).
+### T4c live validation, 2026-09-22
 
-If the five RGB/white channels are validated later, model them as
-`ColorMode.RGBWW` / `rgbww_color`, not HS: HS cannot preserve independent warm
-and cool white channels. Do not add RGBWW from the Java class alone; first
-capture a command from a supported Ace/Pano and record channel scaling and
-whether simultaneous nonzero RGB + white values are accepted.
+Home Assistant 2026.9.2 imported one T4c through the normal JSON config flow.
+The light advertised HSI, 2500–7500 K CCT, tint, and 15 base system effects.
+It did not advertise native RGB or CCT+, so those protocols cannot be validated
+with this light.
 
-Phase B was not entered. Status decode is already present and matches the
-strong sources, while its actual blocker is unproven message delivery. Effects
-and RGBWW both need model-specific data or physical-light captures that this
-spike explicitly does not send.
+Device reports confirmed HSI red/green/blue, 50% saturation, brightness changes
+preserving the selected HSI color, and both CCT endpoints. The user also visually
+confirmed the red/green/blue sequence. Confirmation required fresh reports with
+`assumed_state=false`; a successful write or optimistic HA state did not count.
+All 15 first-generation system-effect presets also confirmed their selection
+and intensity through device reports. Effect dimming preserved its selection,
+and explicit effect-off returned to CCT. Raw CCT reports confirmed green/magenta
+values of -5 and +5 after the signed-rounding fix; tint was then reset to neutral.
+Generation II/III remain untested on hardware.
+Repeated `effect: off` plus HSI wake requests initially failed while the light
+was off. Skipping the redundant effect-stop packet fixed the repeated request
+and waking into HSI from a cached Fire effect. The normal HSI encoder was not
+changed. Core restart preserved off state; entry reload reconnected and confirmed
+the previous HSI state. Neither path sent startup control commands.
+The light started off and was returned to off after each test batch.
+
+### Ace 25c comparison, 2026-09-22
+
+Ace and T4c accepted byte-identical packets for all 12 shared first-generation
+effects at 5% intensity. Both returned the requested effect and intensity, and
+the user saw effects on both. Ace also confirmed effect dimming, effect-off to
+CCT, 2300 K and 10000 K endpoints, and raw green/magenta reports of -5 and +5.
+Its Desktop profile has no extended CCT range; the 1800–20000 K path remains
+unvalidated on hardware.
+
+Native RGB red and magenta were visually confirmed on Ace. Its RGB reports reduce channel
+values to 0/1 and cannot distinguish mixed colors reliably. They now update
+power/intensity while preserving the requested RGB color as assumed; see
+[RGB readback limits](rgbww-design.md). No model-specific RGB/effect encoder
+or guessed replacement opcode was introduced.
 
 ## Mesh Values
 

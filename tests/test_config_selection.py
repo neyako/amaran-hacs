@@ -47,7 +47,7 @@ class FixtureSelectionTest(unittest.TestCase):
 
         self.assertEqual(
             choices[fixture_unique_id(ace)],
-            "Ace (Ace 25c) - Brightness, Color temperature, Color/HSI, Battery",
+            "Ace (Ace 25c) - Brightness, Color temperature, Color/HSI, RGB, Battery",
         )
         self.assertIs(
             fixture_for_unique_id([ace, pano], fixture_unique_id(pano)),

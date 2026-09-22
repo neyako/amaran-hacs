@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .const import (
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_HS,
+    COLOR_MODE_RGB,
     DEFAULT_COLOR_TEMP_KELVIN,
     MAX_COLOR_TEMP_KELVIN,
     MIN_COLOR_TEMP_KELVIN,
@@ -17,6 +18,8 @@ from .const import (
 COMMAND_BRIGHTNESS = "brightness"
 COMMAND_CCT = "cct"
 COMMAND_HSI = "hsi"
+COMMAND_RGB = "rgb"
+COMMAND_EFFECT = "effect"
 COMMAND_POWER = "power"
 
 DEFAULT_HS_COLOR = (0.0, 0.0)
@@ -31,6 +34,8 @@ class FixtureCachedState:
     color_temp_kelvin: int = DEFAULT_COLOR_TEMP_KELVIN
     hs_color: tuple[float, float] = DEFAULT_HS_COLOR
     active_color_mode: str = COLOR_MODE_COLOR_TEMP
+    rgb_color: tuple[int, int, int] = (255, 255, 255)
+    effect: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,142 +52,79 @@ def plan_turn_on(
     *,
     supports_hs: bool,
     supports_color_temp: bool = True,
+    supports_rgb: bool = False,
     brightness: Any = None,
     kelvin: Any = None,
     hs_color: Any = None,
+    rgb_color: Any = None,
+    effect: str | None = None,
+    minimum_kelvin: int = MIN_COLOR_TEMP_KELVIN,
+    maximum_kelvin: int = MAX_COLOR_TEMP_KELVIN,
 ) -> TurnOnPlan:
     """Resolve one HA turn_on request into a Sidus command preserving mode."""
 
-    requested_brightness = brightness is not None
-    requested_kelvin = kelvin is not None and supports_color_temp
-    requested_hs = hs_color is not None and supports_hs
-    next_brightness = (
-        _clamp_brightness(brightness) if requested_brightness else state.brightness
-    )
-    next_kelvin = _clamp_kelvin(kelvin) if requested_kelvin else state.color_temp_kelvin
-    next_hs = _clamp_hs(hs_color) if requested_hs else state.hs_color
     was_off = not state.power
-
-    if requested_hs:
-        return TurnOnPlan(
-            command=COMMAND_HSI,
-            power_on=was_off,
-            state=FixtureCachedState(
-                power=True,
-                brightness=next_brightness,
-                color_temp_kelvin=state.color_temp_kelvin,
-                hs_color=next_hs,
-                active_color_mode=COLOR_MODE_HS,
-            ),
-        )
-
-    if requested_kelvin:
-        return TurnOnPlan(
-            command=COMMAND_CCT,
-            power_on=was_off,
-            state=FixtureCachedState(
-                power=True,
-                brightness=next_brightness,
-                color_temp_kelvin=next_kelvin,
-                hs_color=state.hs_color,
-                active_color_mode=COLOR_MODE_COLOR_TEMP,
-            ),
-        )
-
-    if requested_brightness:
-        if state.active_color_mode == COLOR_MODE_HS and supports_hs:
-            return TurnOnPlan(
-                command=COMMAND_HSI,
-                power_on=was_off,
-                state=FixtureCachedState(
-                    power=True,
-                    brightness=next_brightness,
-                    color_temp_kelvin=state.color_temp_kelvin,
-                    hs_color=state.hs_color,
-                    active_color_mode=COLOR_MODE_HS,
-                ),
-            )
-        return TurnOnPlan(
-            command=COMMAND_CCT if was_off and supports_color_temp else COMMAND_BRIGHTNESS,
-            power_on=was_off,
-            state=FixtureCachedState(
-                power=True,
-                brightness=next_brightness,
-                color_temp_kelvin=state.color_temp_kelvin,
-                hs_color=state.hs_color,
-                active_color_mode=(
-                    COLOR_MODE_COLOR_TEMP if supports_color_temp else COLOR_MODE_BRIGHTNESS
-                ),
-            ),
-        )
-
-    if was_off:
-        if state.active_color_mode == COLOR_MODE_HS and supports_hs:
-            return TurnOnPlan(
-                command=COMMAND_HSI,
-                power_on=True,
-                state=FixtureCachedState(
-                    power=True,
-                    brightness=state.brightness,
-                    color_temp_kelvin=state.color_temp_kelvin,
-                    hs_color=state.hs_color,
-                    active_color_mode=COLOR_MODE_HS,
-                ),
-            )
-        if not supports_color_temp:
-            return TurnOnPlan(
-                command=COMMAND_BRIGHTNESS,
-                power_on=True,
-                state=FixtureCachedState(
-                    power=True,
-                    brightness=state.brightness,
-                    color_temp_kelvin=state.color_temp_kelvin,
-                    hs_color=state.hs_color,
-                    active_color_mode=COLOR_MODE_BRIGHTNESS,
-                ),
-            )
-        return TurnOnPlan(
-            command=COMMAND_CCT,
-            power_on=True,
-            state=FixtureCachedState(
-                power=True,
-                brightness=state.brightness,
-                color_temp_kelvin=state.color_temp_kelvin,
-                hs_color=state.hs_color,
-                active_color_mode=COLOR_MODE_COLOR_TEMP,
-            ),
-        )
-
-    return TurnOnPlan(
-        command=COMMAND_POWER,
-        state=FixtureCachedState(
-            power=True,
-            brightness=state.brightness,
-            color_temp_kelvin=state.color_temp_kelvin,
-            hs_color=state.hs_color,
-            active_color_mode=state.active_color_mode,
-        ),
+    next_state = replace(
+        state, power=True,
+        brightness=_clamp_brightness(brightness) if brightness is not None else state.brightness,
     )
+    if effect is not None and effect != "off":
+        return TurnOnPlan(COMMAND_EFFECT, replace(next_state, effect=effect), was_off)
+    if effect == "off":
+        next_state = replace(next_state, effect=None)
+    if rgb_color is not None and supports_rgb:
+        return TurnOnPlan(COMMAND_RGB, replace(
+            next_state, rgb_color=clamp_rgb(rgb_color), active_color_mode=COLOR_MODE_RGB, effect=None,
+        ), was_off)
+    if hs_color is not None and supports_hs:
+        return TurnOnPlan(COMMAND_HSI, replace(
+            next_state, hs_color=_clamp_hs(hs_color), active_color_mode=COLOR_MODE_HS, effect=None,
+        ), was_off)
+    if kelvin is not None and supports_color_temp:
+        return TurnOnPlan(COMMAND_CCT, replace(
+            next_state,
+            color_temp_kelvin=clamp_kelvin(kelvin, minimum_kelvin, maximum_kelvin),
+            active_color_mode=COLOR_MODE_COLOR_TEMP,
+            effect=None,
+        ), was_off)
+    if next_state.effect is not None and (brightness is not None or was_off):
+        return TurnOnPlan(COMMAND_EFFECT, next_state, was_off)
+    if brightness is not None or was_off or effect == "off":
+        if state.active_color_mode == COLOR_MODE_RGB and supports_rgb:
+            return TurnOnPlan(COMMAND_RGB, next_state, was_off)
+        if state.active_color_mode == COLOR_MODE_HS and supports_hs:
+            return TurnOnPlan(COMMAND_HSI, next_state, was_off)
+        return TurnOnPlan(
+            COMMAND_CCT if (was_off or effect == "off") and supports_color_temp else COMMAND_BRIGHTNESS,
+            replace(next_state, active_color_mode=(
+                COLOR_MODE_COLOR_TEMP if supports_color_temp else COLOR_MODE_BRIGHTNESS
+            )),
+            was_off,
+        )
+    return TurnOnPlan(COMMAND_POWER, next_state)
 
 
 def turn_off_state(state: FixtureCachedState) -> FixtureCachedState:
     """Power off without wiping cached brightness/color values."""
 
-    return FixtureCachedState(
-        power=False,
-        brightness=state.brightness,
-        color_temp_kelvin=state.color_temp_kelvin,
-        hs_color=state.hs_color,
-        active_color_mode=state.active_color_mode,
-    )
+    return replace(state, power=False)
+
+
+def clamp_rgb(rgb_color: Any) -> tuple[int, int, int]:
+    """Normalize HA channels, requiring exactly three values."""
+
+    red, green, blue = rgb_color
+    return tuple(max(0, min(255, int(channel))) for channel in (red, green, blue))
 
 
 def _clamp_brightness(brightness: Any) -> int:
     return max(0, min(255, int(brightness)))
 
 
-def _clamp_kelvin(kelvin: Any) -> int:
-    return max(MIN_COLOR_TEMP_KELVIN, min(MAX_COLOR_TEMP_KELVIN, int(kelvin)))
+def clamp_kelvin(kelvin: Any, minimum: int, maximum: int) -> int:
+    """Clamp a requested or restored temperature to the model's supported range."""
+
+    return max(minimum, min(maximum, int(kelvin)))
 
 
 def _clamp_hs(hs_color: Any) -> tuple[float, float]:
