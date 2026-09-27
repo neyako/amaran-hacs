@@ -323,7 +323,7 @@ class SharedMeshTransportModelTest(unittest.TestCase):
         self.assertEqual(first.entry_ids, {"entry-1", "entry-2"})
         self.assertEqual(len(first.fixtures), 2)
 
-    def test_entries_with_different_proxy_mac_use_separate_runtimes(self) -> None:
+    def test_entries_with_different_proxy_mac_share_one_runtime(self) -> None:
         fixtures = _fixtures()
         first_entry = FakeEntry(
             {**fixtures[0], CONF_SOURCE_ADDRESS: 0x000F},
@@ -337,22 +337,63 @@ class SharedMeshTransportModelTest(unittest.TestCase):
         )
         hass = types.SimpleNamespace(data={})
 
+        self.assertEqual(
+            mesh_network_key(first_entry, fixtures[0]),
+            mesh_network_key(second_entry, fixtures[1]),
+        )
         first = get_mesh_network(
+            hass,
+            first_entry,
+            [fixtures[0]],
+            context_entries=[first_entry, second_entry],
+            context_fixtures=fixtures[:2],
+        )
+        second = get_mesh_network(
+            hass,
+            second_entry,
+            [fixtures[1]],
+            context_entries=[first_entry, second_entry],
+            context_fixtures=fixtures[:2],
+        )
+
+        self.assertIs(first, second)
+        self.assertEqual(first.proxy_selection, PROXY_SELECTION_MANUAL)
+        self.assertEqual(first.proxy_address, fixtures[0][CONF_BLE_MAC])
+
+    def test_entry_attached_later_adds_its_light_as_proxy_candidate(self) -> None:
+        fixtures = _fixtures()
+        first_entry = FakeEntry(
+            {**fixtures[0], CONF_SOURCE_ADDRESS: 0x000F}, entry_id="entry-1"
+        )
+        second_entry = FakeEntry(
+            {**fixtures[1], CONF_SOURCE_ADDRESS: 0x000F},
+            {CONF_PROXY_MAC: fixtures[1][CONF_BLE_MAC]},
+            entry_id="entry-2",
+        )
+        hass = types.SimpleNamespace(data={})
+        mesh = get_mesh_network(
             hass,
             first_entry,
             [fixtures[0]],
             context_entries=[first_entry],
             context_fixtures=[fixtures[0]],
         )
-        second = get_mesh_network(
+        self.assertNotIn(fixtures[1][CONF_BLE_MAC], mesh.proxy_candidates)
+
+        # Added while Home Assistant runs: not part of the original context.
+        get_mesh_network(
             hass,
             second_entry,
             [fixtures[1]],
-            context_entries=[second_entry],
-            context_fixtures=[fixtures[1]],
+            context_entries=[first_entry, second_entry],
+            context_fixtures=fixtures[:2],
         )
 
-        self.assertIsNot(first, second)
+        self.assertIn(fixtures[1][CONF_BLE_MAC], mesh.proxy_candidates)
+        self.assertEqual(mesh.proxy_address, fixtures[1][CONF_BLE_MAC])
+        settings = mesh._transport._settings
+        self.assertEqual(settings.proxy_candidates, mesh.proxy_candidates)
+        self.assertEqual(settings.proxy_address, fixtures[1][CONF_BLE_MAC])
 
     def test_blank_proxy_option_overrides_legacy_fixture_target(self) -> None:
         fixtures = _fixtures()
@@ -391,30 +432,59 @@ class SharedMeshTransportModelTest(unittest.TestCase):
 
 
 class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
-    async def test_warmup_loop_uses_background_task_when_available(self) -> None:
+    async def test_advertisement_does_not_bypass_retry_backoff(self) -> None:
         fixtures = _fixtures()
-        hass = FakeTaskHass()
+        entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
+        mesh = SidusMeshNetwork(FakeTaskHass(), entry, fixtures)
+        transport = FakeMeshTransport(fail=True)
+        mesh._transport = transport
+        advertisement = types.SimpleNamespace(address=fixtures[0][CONF_BLE_MAC])
+
+        mesh.async_start_warmup("startup")
+        await _wait_for(lambda: mesh._backoff_pending)
+        for _ in range(5):
+            mesh.mark_proxy_advertisement_seen(advertisement)
+            await asyncio.sleep(0)
+
+        self.assertEqual(transport.warmup_count, 1)
+        self.assertEqual(mesh._warmup_policy.next_delay(), 2.0)
+
+        # An explicit reconnect request (e.g. a clean BLE drop) is still fast.
+        mesh.async_start_warmup("ble_disconnect")
+        await _wait_for(lambda: transport.warmup_count == 2)
+        await mesh.async_close()
+
+    async def test_readiness_changes_notify_light_availability(self) -> None:
+        fixtures = _fixtures()
+        hass = FakePollHass()
         entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
         mesh = SidusMeshNetwork(hass, entry, fixtures)
-        mesh._transport = FakeMeshTransport()
+        transport = FakeMeshTransport()
+        mesh._transport = transport
+        client = AmaranSidusClient(hass, entry, fixtures[0], mesh_network=mesh)
+        updates: list[bool] = []
+        client.subscribe_availability(lambda: updates.append(client.is_available))
+        with mock.patch.dict(
+            sys.modules, {"homeassistant.helpers.event": _make_event_module()}
+        ):
+            await client.async_setup()
 
-        await mesh.async_setup()
-        try:
-            mesh.async_start_warmup("startup")
+        mesh.async_start_warmup("startup")
+        await _wait_for(lambda: updates == [True])
 
-            self.assertEqual(
-                hass.background_task_names,
-                ["amaran_entry-1_mesh_warmup"],
-            )
-            self.assertEqual(hass.setup_task_names, [])
-        finally:
-            await mesh.async_close()
+        transport.connected = False
+        mesh._handle_ble_disconnect()
+        self.assertEqual(updates[:2], [True, False])
+        await _wait_for(lambda: updates == [True, False, True])
+
+        client.async_unload()
+        await mesh.async_close()
 
     async def test_reload_warmup_and_disconnect_reconnect_restore_availability(
         self,
     ) -> None:
         fixtures = _fixtures()
-        hass = types.SimpleNamespace(data={})
+        hass = FakeTaskHass()
         entry = FakeEntry(
             {CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F},
             {CONF_ENABLE_PRESENCE_CHECKING: False},
@@ -443,8 +513,9 @@ class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
 
 
 class FakeMeshTransport:
-    def __init__(self, *, ready: bool = False) -> None:
+    def __init__(self, *, ready: bool = False, fail: bool = False) -> None:
         self.connected = ready
+        self.fail = fail
         self.state = (
             TRANSPORT_STATE_PROXY_READY if ready else TRANSPORT_STATE_DISCONNECTED
         )
@@ -464,6 +535,8 @@ class FakeMeshTransport:
 
     async def async_warmup(self) -> None:
         self.warmup_count += 1
+        if self.fail:
+            raise RuntimeError("proxy refused connection")
         self.connected = True
         self.state = TRANSPORT_STATE_PROXY_READY
 
@@ -475,33 +548,22 @@ class FakeMeshTransport:
 class FakeTaskHass:
     def __init__(self) -> None:
         self.data: dict[str, Any] = {}
-        self.background_task_names: list[str] = []
-        self.setup_task_names: list[str] = []
 
     def async_create_background_task(
         self, coroutine: Any, name: str, **_kwargs: Any
     ) -> asyncio.Task:
-        self.background_task_names.append(name)
-        return asyncio.create_task(coroutine, name=name)
-
-    def async_create_task(
-        self, coroutine: Any, name: str | None = None, **_kwargs: Any
-    ) -> asyncio.Task:
-        if name is not None:
-            self.setup_task_names.append(name)
         return asyncio.create_task(coroutine, name=name)
 
 
 class FakePollMesh:
-    def __init__(self, *, ready: bool = False, fail: bool = False) -> None:
+    def __init__(self, *, ready: bool = False) -> None:
         self._ready = ready
-        self._fail = fail
         self.sent: list[tuple[list[bytes], int]] = []
         self.warmups: list[str] = []
         self.closed = False
         self.proxy_address = "AA:BB:CC:DD:EE:01"
         self.proxy_selection = PROXY_SELECTION_AUTO
-        self.transport_metrics: dict[str, Any] = {"state": TRANSPORT_STATE_PROXY_READY}
+        self.transport_state = TRANSPORT_STATE_PROXY_READY
 
     @property
     def is_ready(self) -> bool:
@@ -516,8 +578,6 @@ class FakePollMesh:
         fixture_mac: str | None,
         first_payload_delay: float,
     ) -> None:
-        if self._fail:
-            raise RuntimeError("boom")
         self.sent.append((list(payloads), node_address))
 
     def async_start_warmup(self, reason: str) -> None:
@@ -527,9 +587,9 @@ class FakePollMesh:
         self.closed = True
 
 
-class FakePollHass:
+class FakePollHass(FakeTaskHass):
     def __init__(self) -> None:
-        self.data: dict[str, Any] = {}
+        super().__init__()
         self.tracked_intervals: list[dict[str, Any]] = []
         self.loop = None
 
@@ -718,12 +778,6 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         await client._async_poll_battery()
         self.assertEqual(mesh.sent, [])
 
-    async def test_poll_failure_triggers_warmup(self) -> None:
-        mesh = FakePollMesh(ready=True, fail=True)
-        client = self._make_client(battery_capable=True, mesh=mesh)
-        await client._async_poll_state()
-        self.assertEqual(mesh.warmups, ["poll_failure"])
-
     async def test_status_update_is_dispatched_on_the_event_loop(self) -> None:
         fixture = _fixtures()[-1]
         hass = types.SimpleNamespace(data={}, loop=asyncio.get_running_loop())
@@ -758,14 +812,6 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             client.hass.tracked_intervals[0]["interval"].total_seconds(), 30.0
         )
-
-    async def test_disconnect_cancels_poll_timers(self) -> None:
-        mesh = FakePollMesh(ready=True)
-        client = self._make_client(battery_capable=True, mesh=mesh)
-        client._start_polling()
-        records = list(client.hass.tracked_intervals)
-        await client.async_disconnect()
-        self.assertTrue(records and all(record["cancelled"] for record in records))
 
     async def test_entry_unload_cancels_client_subscriptions_before_network_release(self) -> None:
         from custom_components.amaran import async_unload_entry

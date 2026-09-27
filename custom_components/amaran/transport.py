@@ -1,10 +1,10 @@
-"""BLE transport layers for Amaran Sidus mesh proxy writes."""
+"""Persistent BLE transport for Amaran Sidus mesh proxy writes."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import time
 from typing import Any
@@ -13,6 +13,7 @@ from .const import (
     MESH_PROXY_IN_UUID,
     MESH_PROXY_OUT_UUID,
     PROXY_SELECTION_AUTO,
+    TRANSPORT_MODE_PERSISTENT,
     TRANSPORT_STATE_DISCONNECTED,
     TRANSPORT_STATE_FAILED,
     TRANSPORT_STATE_PROXY_READY,
@@ -39,7 +40,7 @@ _WATCHDOG_SILENCE_SECONDS = 90.0
 
 @dataclass(frozen=True)
 class SidusTransportSettings:
-    """Immutable settings shared by transient and persistent transports."""
+    """Immutable settings for one shared mesh transport."""
 
     hass: Any
     address: str
@@ -130,8 +131,8 @@ class _WriteRequest:
     warmup: bool = False
 
 
-class SidusBaseTransport:
-    """Shared mesh PDU and sequence handling for transport implementations."""
+class SidusPersistentTransport:
+    """Long-lived BLE session with serialized queued writes for one mesh."""
 
     def __init__(
         self,
@@ -139,23 +140,39 @@ class SidusBaseTransport:
         settings: SidusTransportSettings,
         sequence_manager: Any,
         save_sequence: Callable[[], Awaitable[None]],
-        mode: str,
     ) -> None:
         self._settings = settings
         self._sequence_manager = sequence_manager
         self._save_sequence = save_sequence
-        self._metrics = SidusTransportMetrics(mode=mode)
+        self._metrics = SidusTransportMetrics(mode=TRANSPORT_MODE_PERSISTENT)
         self._last_bluetooth_device: dict[str, Any] | None = None
         self._last_write: dict[str, Any] | None = None
         self._failed_proxy_addresses: set[str] = set()
         self._proxy_out_target: Any | None = None
         self._ever_received_notification = False
+        self._queue: asyncio.Queue[_WriteRequest] = asyncio.Queue()
+        self._worker_task: asyncio.Task[None] | None = None
+        self._client: Any | None = None
+        self._write_target: Any | None = None
+        self._has_connected = False
+        self._closed = False
 
     @property
     def connected(self) -> bool:
-        """Return current transport connection state."""
+        """Return true when the cached Bleak client is connected."""
 
-        return False
+        if self._client is None:
+            return False
+        try:
+            return bool(getattr(self._client, "is_connected", False))
+        except Exception:
+            return False
+
+    @property
+    def state(self) -> str:
+        """Return the raw transport state without building full metrics."""
+
+        return self._metrics.state
 
     @property
     def last_bluetooth_device(self) -> dict[str, Any] | None:
@@ -176,11 +193,56 @@ class SidusBaseTransport:
         self._metrics.connected = self.connected
         return self._metrics.as_dict()
 
+    def set_proxy_targets(
+        self,
+        *,
+        address: str,
+        proxy_selection: str,
+        proxy_address: str,
+        proxy_candidates: tuple[str, ...],
+    ) -> None:
+        """Use updated proxy preferences on the next connection attempt."""
+
+        self._settings = replace(
+            self._settings,
+            address=address,
+            proxy_selection=proxy_selection,
+            proxy_address=proxy_address,
+            proxy_candidates=proxy_candidates,
+        )
+
     async def async_setup(self) -> None:
-        """Prepare transport resources."""
+        """Start the persistent worker unless the transport was closed."""
+
+        if self._closed:
+            return
+        if self._worker_task is None or self._worker_task.done():
+            name = f"amaran_{self._settings.address}_ble_worker"
+            self._worker_task = self._settings.hass.async_create_background_task(
+                self._worker_loop(), name=name
+            )
 
     async def async_close(self) -> None:
-        """Release transport resources."""
+        """Stop worker, fail pending requests, and close the cached BLE session.
+
+        The worker is cancelled rather than drained so an in-flight connect
+        (with its own retries) cannot hold up unload or Home Assistant stop.
+        """
+
+        self._closed = True
+        worker = self._worker_task
+        self._worker_task = None
+        if worker is not None:
+            worker.cancel()
+            # Wait on the task as a future rather than re-driving its coroutine:
+            # teardown must not re-raise a worker crash, and under
+            # IsolatedAsyncioTestCase on Python < 3.13 the worker coroutine can
+            # be finalized early, which makes ``await worker`` raise.
+            await asyncio.wait({worker})
+        while not self._queue.empty():
+            _fail_request(self._queue.get_nowait())
+        self._metrics.queue_depth = 0
+        await self._disconnect_cached()
 
     async def async_send_siduses(
         self,
@@ -191,14 +253,67 @@ class SidusBaseTransport:
         fixture_mac: str | None = None,
         first_payload_delay: float = 0.0,
     ) -> None:
-        """Write Sidus payloads."""
+        """Queue Sidus payloads and wait for worker completion."""
 
-        raise NotImplementedError
+        if not sidus_payloads:
+            return
+        await self._async_submit(
+            sidus_payloads=list(sidus_payloads),
+            first_payload_delay=first_payload_delay,
+            node_address=self._settings.node_address
+            if node_address is None
+            else node_address,
+            fixture_name=fixture_name or self._settings.name,
+            fixture_mac=fixture_mac,
+            warmup=False,
+        )
 
     async def async_warmup(self) -> None:
-        """Resolve/connect/discover the Mesh Proxy Data In characteristic."""
+        """Queue connection/discovery without sending a Sidus command."""
 
-        raise NotImplementedError
+        await self._async_submit(
+            sidus_payloads=[],
+            first_payload_delay=0.0,
+            node_address=self._settings.node_address,
+            fixture_name=self._settings.name,
+            fixture_mac=None,
+            warmup=True,
+        )
+
+    async def _async_submit(self, **request: Any) -> None:
+        if self._closed:
+            raise _closed_error()
+        if self._worker_task is None or self._worker_task.done():
+            await self.async_setup()
+
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._queue.put_nowait(_WriteRequest(future=future, **request))
+        self._metrics.queue_depth = self._queue.qsize()
+        await future
+
+    async def _worker_loop(self) -> None:
+        while True:
+            request = await self._queue.get()
+            self._metrics.queue_depth = self._queue.qsize()
+            if request.future.done():
+                # The caller gave up (for example a cancelled warm-up); skip
+                # the BLE work instead of connecting for nobody.
+                continue
+            try:
+                await self._process_request(request)
+            except asyncio.CancelledError:
+                _fail_request(request)
+                raise
+            except Exception as err:
+                self._set_state(TRANSPORT_STATE_FAILED, repr(err))
+                await self._disconnect_cached()
+                if not request.future.done():
+                    request.future.set_exception(err)
+            else:
+                if not request.future.done():
+                    request.future.set_result(None)
+            finally:
+                self._metrics.queue_depth = self._queue.qsize()
 
     def _set_state(self, state: str, error: str | None = None) -> None:
         self._metrics.state = state
@@ -213,7 +328,7 @@ class SidusBaseTransport:
         reconnects instead of waiting on the slow connection monitor.
         """
 
-        if client is not getattr(self, "_client", None):
+        if client is not self._client:
             return
         _LOGGER.debug("Sidus BLE link dropped unexpectedly; scheduling reconnect")
         if self._metrics.state != TRANSPORT_STATE_FAILED:
@@ -599,329 +714,82 @@ class SidusBaseTransport:
         fixture_mac: str | None,
         first_payload_delay: float,
     ) -> None:
-        for index, (current_sequence, sidus_payload) in enumerate(
-            zip(sequences, sidus_payloads)
-        ):
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                access = access_payload(sidus_payload)
-                _LOGGER.debug(
-                    "Sidus payload write light=%s light_mac=%s light_node=0x%04x "
-                    "selected_ble_mac=%s dst=0x%04x seq=%s src=0x%04x "
-                    "sidus=%s access=%s",
-                    fixture_name,
-                    fixture_mac,
-                    node_address,
-                    self._last_bluetooth_device["address"]
-                    if self._last_bluetooth_device
-                    else None,
-                    node_address,
-                    current_sequence,
-                    self._settings.source_address,
-                    sidus_payload.hex(" "),
-                    access.hex(" "),
-                )
-            proxy_pdu = build_mesh_proxy_pdu(
-                net_key=self._settings.net_key,
-                app_key=self._settings.app_key,
-                src=self._settings.source_address,
-                dst=node_address,
-                seq=current_sequence,
-                iv_index=self._settings.iv_index,
-                sidus_payload=sidus_payload,
-                ttl=self._settings.ttl,
-            )
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug(
-                    "Writing Sidus proxy PDU seq=%s src=0x%04x dst=0x%04x "
-                    "iv_index=%s ttl=%s resolved_address=%s len=%s header=%s",
-                    current_sequence,
-                    self._settings.source_address,
-                    node_address,
-                    self._settings.iv_index,
-                    self._settings.ttl,
-                    self._last_bluetooth_device["address"]
-                    if self._last_bluetooth_device
-                    else None,
-                    len(proxy_pdu),
-                    proxy_pdu[:2].hex(),
-                )
-            write_start = time.perf_counter()
-            _LOGGER.debug(
-                "Sidus timing write_start seq=%s len=%s queue_depth=%s mode=%s",
-                current_sequence,
-                len(proxy_pdu),
-                self._metrics.queue_depth,
-                self._metrics.mode,
-            )
-            await client.write_gatt_char(write_target, proxy_pdu, response=False)
-            self._metrics.write_ms = _elapsed_ms(write_start)
-            self._metrics.last_write_time = time.time()
-            self._metrics.last_error = None
-            _LOGGER.debug(
-                "Sidus timing write_end_ms=%.1f seq=%s",
-                self._metrics.write_ms,
-                current_sequence,
-            )
-            self._last_write = {
-                "sequence": current_sequence,
-                "next_sequence": current_sequence + 1,
-                "source_address": self._settings.source_address,
-                "node_address": node_address,
-                "light_name": fixture_name,
-                "light_mac": fixture_mac,
-                "iv_index": self._settings.iv_index,
-                "ttl": self._settings.ttl,
-                "pdu_len": len(proxy_pdu),
-                "pdu_header": proxy_pdu[:2].hex(),
-                "resolved_address": self._last_bluetooth_device["address"]
-                if self._last_bluetooth_device
-                else None,
-                **self.metrics,
-            }
-            if index < len(sidus_payloads) - 1:
-                delay = (
-                    first_payload_delay
-                    if index == 0 and first_payload_delay
-                    else _INTER_PAYLOAD_DELAY
-                )
-                await asyncio.sleep(delay)
-
-
-class SidusTransientTransport(SidusBaseTransport):
-    """Connect, write, disconnect for each command."""
-
-    async def async_warmup(self) -> None:
-        """Warm the transient path, then close the one-shot connection."""
-
-        client = None
-        self._metrics.queue_depth = 0
-        self._metrics.disconnect_ms = 0.0
-        self._set_state(TRANSPORT_STATE_WARMING)
+        last_sent: tuple[int, bytes] | None = None
         try:
-            ble_device = await self._lookup_ble_device(connection_reused=False)
-            client = await self._connect_client(ble_device)
-            await self._discover_proxy_in(client)
-            self._set_state(TRANSPORT_STATE_PROXY_READY)
-        except Exception as err:
-            self._set_state(TRANSPORT_STATE_FAILED, repr(err))
-            raise
-        finally:
-            if client is not None:
-                disconnect_start = time.perf_counter()
-                try:
-                    await client.disconnect()
-                finally:
-                    self._metrics.disconnect_ms = _elapsed_ms(disconnect_start)
-                    self._set_state(TRANSPORT_STATE_DISCONNECTED)
-
-    async def async_send_siduses(
-        self,
-        sidus_payloads: list[bytes],
-        *,
-        node_address: int | None = None,
-        fixture_name: str | None = None,
-        fixture_mac: str | None = None,
-        first_payload_delay: float = 0.0,
-    ) -> None:
-        """Write Sidus payloads with the original one-shot BLE lifecycle."""
-
-        if not sidus_payloads:
-            return
-
-        destination = self._settings.node_address if node_address is None else node_address
-        async with self._sequence_manager.lock:
-            client = None
-            self._metrics.queue_depth = 0
-            self._metrics.disconnect_ms = 0.0
-            try:
-                self._set_state(TRANSPORT_STATE_RECONNECTING)
-                ble_device = await self._lookup_ble_device(connection_reused=False)
-                client = await self._connect_client(ble_device)
-                # Discover/connect first so the proxy filter is set (reserving
-                # the lowest sequence) before the command sequences below.
-                write_target = await self._discover_proxy_in(client)
-                self._set_state(TRANSPORT_STATE_PROXY_READY)
-                sequences = self._reserve_sequences(
-                    len(sidus_payloads), node_address=destination
+            for index, (current_sequence, sidus_payload) in enumerate(
+                zip(sequences, sidus_payloads)
+            ):
+                proxy_pdu = build_mesh_proxy_pdu(
+                    net_key=self._settings.net_key,
+                    app_key=self._settings.app_key,
+                    src=self._settings.source_address,
+                    dst=node_address,
+                    seq=current_sequence,
+                    iv_index=self._settings.iv_index,
+                    sidus_payload=sidus_payload,
+                    ttl=self._settings.ttl,
                 )
-                await self._save_sequence()
-                await self._write_reserved(
-                    client=client,
-                    write_target=write_target,
-                    sequences=sequences,
-                    sidus_payloads=sidus_payloads,
-                    node_address=destination,
-                    fixture_name=fixture_name or self._settings.name,
-                    fixture_mac=fixture_mac,
-                    first_payload_delay=first_payload_delay,
-                )
-            except Exception as err:
-                self._set_state(TRANSPORT_STATE_FAILED, repr(err))
-                raise
-            finally:
-                if client is not None:
-                    disconnect_start = time.perf_counter()
+                if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug(
-                        "Sidus timing disconnect_start resolved_address=%s",
-                        getattr(client, "address", None),
+                        "Sidus payload write light=%s light_mac=%s "
+                        "light_node=0x%04x selected_ble_mac=%s seq=%s src=0x%04x "
+                        "iv_index=%s ttl=%s sidus=%s access=%s len=%s header=%s "
+                        "queue_depth=%s",
+                        fixture_name,
+                        fixture_mac,
+                        node_address,
+                        self._resolved_address(),
+                        current_sequence,
+                        self._settings.source_address,
+                        self._settings.iv_index,
+                        self._settings.ttl,
+                        sidus_payload.hex(" "),
+                        access_payload(sidus_payload).hex(" "),
+                        len(proxy_pdu),
+                        proxy_pdu[:2].hex(),
+                        self._metrics.queue_depth,
                     )
-                    try:
-                        await client.disconnect()
-                    finally:
-                        self._metrics.disconnect_ms = _elapsed_ms(disconnect_start)
-                        _LOGGER.debug(
-                            "Sidus timing disconnect_end_ms=%.1f",
-                            self._metrics.disconnect_ms,
-                        )
-                        if self._last_write is not None:
-                            self._last_write["disconnect_ms"] = round(
-                                self._metrics.disconnect_ms, 1
-                            )
-                        if self._metrics.state != TRANSPORT_STATE_FAILED:
-                            self._set_state(TRANSPORT_STATE_DISCONNECTED)
+                write_start = time.perf_counter()
+                await client.write_gatt_char(write_target, proxy_pdu, response=False)
+                self._metrics.write_ms = _elapsed_ms(write_start)
+                self._metrics.last_write_time = time.time()
+                self._metrics.last_error = None
+                _LOGGER.debug(
+                    "Sidus timing write_end_ms=%.1f seq=%s",
+                    self._metrics.write_ms,
+                    current_sequence,
+                )
+                last_sent = (current_sequence, proxy_pdu)
+                if index < len(sidus_payloads) - 1:
+                    delay = (
+                        first_payload_delay
+                        if index == 0 and first_payload_delay
+                        else _INTER_PAYLOAD_DELAY
+                    )
+                    await asyncio.sleep(delay)
+        finally:
+            # Diagnostics only need the last sent packet, so build the metrics
+            # snapshot once per batch instead of once per packet.
+            if last_sent is not None:
+                sequence, proxy_pdu = last_sent
+                self._last_write = {
+                    "sequence": sequence,
+                    "next_sequence": sequence + 1,
+                    "source_address": self._settings.source_address,
+                    "node_address": node_address,
+                    "light_name": fixture_name,
+                    "light_mac": fixture_mac,
+                    "iv_index": self._settings.iv_index,
+                    "ttl": self._settings.ttl,
+                    "pdu_len": len(proxy_pdu),
+                    "pdu_header": proxy_pdu[:2].hex(),
+                    "resolved_address": self._resolved_address(),
+                    **self.metrics,
+                }
 
-
-class SidusPersistentTransport(SidusBaseTransport):
-    """Long-lived BLE session with serialized queued writes."""
-
-    def __init__(
-        self,
-        *,
-        settings: SidusTransportSettings,
-        sequence_manager: Any,
-        save_sequence: Callable[[], Awaitable[None]],
-        mode: str,
-    ) -> None:
-        super().__init__(
-            settings=settings,
-            sequence_manager=sequence_manager,
-            save_sequence=save_sequence,
-            mode=mode,
-        )
-        self._queue: asyncio.Queue[_WriteRequest | None] = asyncio.Queue()
-        self._worker_task: asyncio.Task[None] | None = None
-        self._client: Any | None = None
-        self._write_target: Any | None = None
-        self._has_connected = False
-
-    @property
-    def connected(self) -> bool:
-        """Return true when the cached Bleak client is connected."""
-
-        if self._client is None:
-            return False
-        try:
-            return bool(getattr(self._client, "is_connected", False))
-        except Exception:
-            return False
-
-    async def async_setup(self) -> None:
-        """Start the persistent worker."""
-
-        if self._worker_task is None or self._worker_task.done():
-            name = f"amaran_{self._settings.address}_ble_worker"
-            coroutine = self._worker_loop()
-            create_background_task = getattr(
-                self._settings.hass, "async_create_background_task", None
-            )
-            if callable(create_background_task):
-                self._worker_task = create_background_task(coroutine, name=name)
-            else:
-                create_task = getattr(self._settings.hass, "async_create_task", None)
-                if callable(create_task):
-                    self._worker_task = create_task(coroutine, name=name)
-                else:
-                    self._worker_task = asyncio.create_task(coroutine, name=name)
-
-    async def async_close(self) -> None:
-        """Stop worker and close the cached BLE session."""
-
-        worker = self._worker_task
-        self._worker_task = None
-        if worker is not None:
-            await self._queue.put(None)
-            # Wait on the task as a future rather than re-driving its coroutine:
-            # teardown must not re-raise a worker crash, and under
-            # IsolatedAsyncioTestCase on Python < 3.13 the worker coroutine can
-            # be finalized early, which makes ``await worker`` raise.
-            await asyncio.wait({worker})
-        await self._disconnect_cached()
-
-    async def async_send_siduses(
-        self,
-        sidus_payloads: list[bytes],
-        *,
-        node_address: int | None = None,
-        fixture_name: str | None = None,
-        fixture_mac: str | None = None,
-        first_payload_delay: float = 0.0,
-    ) -> None:
-        """Queue Sidus payloads and wait for worker completion."""
-
-        if not sidus_payloads:
-            return
-        if self._worker_task is None or self._worker_task.done():
-            await self.async_setup()
-
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        await self._queue.put(
-            _WriteRequest(
-                sidus_payloads=list(sidus_payloads),
-                first_payload_delay=first_payload_delay,
-                future=future,
-                node_address=self._settings.node_address
-                if node_address is None
-                else node_address,
-                fixture_name=fixture_name or self._settings.name,
-                fixture_mac=fixture_mac,
-                warmup=False,
-            )
-        )
-        self._metrics.queue_depth = self._queue.qsize()
-        await future
-
-    async def async_warmup(self) -> None:
-        """Queue connection/discovery without sending a Sidus command."""
-
-        if self._worker_task is None or self._worker_task.done():
-            await self.async_setup()
-
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        await self._queue.put(
-            _WriteRequest(
-                sidus_payloads=[],
-                first_payload_delay=0.0,
-                future=future,
-                node_address=self._settings.node_address,
-                fixture_name=self._settings.name,
-                fixture_mac=None,
-                warmup=True,
-            )
-        )
-        self._metrics.queue_depth = self._queue.qsize()
-        await future
-
-    async def _worker_loop(self) -> None:
-        while True:
-            request = await self._queue.get()
-            self._metrics.queue_depth = self._queue.qsize()
-            if request is None:
-                self._queue.task_done()
-                return
-
-            try:
-                await self._process_request(request)
-            except Exception as err:
-                self._set_state(TRANSPORT_STATE_FAILED, repr(err))
-                await self._disconnect_cached()
-                if not request.future.done():
-                    request.future.set_exception(err)
-            else:
-                if not request.future.done():
-                    request.future.set_result(None)
-            finally:
-                self._metrics.queue_depth = self._queue.qsize()
-                self._queue.task_done()
+    def _resolved_address(self) -> str | None:
+        device = self._last_bluetooth_device
+        return device["address"] if device else None
 
     async def _process_request(self, request: _WriteRequest) -> None:
         if request.warmup:
@@ -1020,6 +888,15 @@ class SidusPersistentTransport(SidusBaseTransport):
             self._metrics.disconnect_ms = _elapsed_ms(disconnect_start)
             if self._metrics.state != TRANSPORT_STATE_FAILED:
                 self._set_state(TRANSPORT_STATE_DISCONNECTED)
+
+
+def _closed_error() -> RuntimeError:
+    return RuntimeError("Amaran light connection was closed")
+
+
+def _fail_request(request: _WriteRequest) -> None:
+    if not request.future.done():
+        request.future.set_exception(_closed_error())
 
 
 async def _async_get_services(client: Any) -> Any | None:

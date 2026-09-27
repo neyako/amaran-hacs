@@ -161,7 +161,6 @@ def cct_payload(
     high = 0x8200 | ((value >> 2) & 0xFF)
     if telink_cct < 1001:
         low |= telink_cct << 52
-        high |= (telink_cct >> 12) & 0xFF
     else:
         low |= ((telink_cct + 0x18) & 0x3FF) << 52
         low |= 0x0000040000000000

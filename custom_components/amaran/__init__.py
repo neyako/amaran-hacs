@@ -195,7 +195,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
     # The chooser mirrors an existing registered light, including a renamed ID.
     await hass.config_entries.async_forward_entry_setups(entry, (Platform.SELECT,))
-    _migrate_fixture_device_identifier(hass, entry, fixtures[0])
     from .sensor import async_disable_transport_sensors
 
     await async_disable_transport_sensors(hass, clients)

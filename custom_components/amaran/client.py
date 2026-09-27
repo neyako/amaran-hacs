@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -56,7 +56,6 @@ from .const import (
     PROXY_SELECTION_AUTO,
     PROXY_SELECTION_MANUAL,
     TRANSPORT_MODE_PERSISTENT,
-    TRANSPORT_STATE_CONNECTED,
     TRANSPORT_STATE_DISCONNECTED,
     TRANSPORT_STATE_PROXY_READY,
 )
@@ -99,10 +98,7 @@ _MESH_NETWORKS = f"{DOMAIN}_mesh_networks"
 _SEQUENCE_PERSIST_BATCH = 64
 _POWER_SETTLE_DELAY = 0.05
 _MESH_MONITOR_INTERVAL = 5.0
-_AVAILABLE_TRANSPORT_STATES = {
-    TRANSPORT_STATE_CONNECTED,
-    TRANSPORT_STATE_PROXY_READY,
-}
+_AVAILABLE_TRANSPORT_STATES = {TRANSPORT_STATE_PROXY_READY}
 
 
 class SidusSequenceManager:
@@ -200,18 +196,11 @@ class SidusMeshNetwork:
         self._ttl = int(data.get(CONF_TTL, DEFAULT_TTL))
         self._initial_sequence = int(data.get(CONF_SEQUENCE, DEFAULT_SEQUENCE))
         self._node_address = int(data.get(CONF_NODE_ADDRESS, DEFAULT_NODE_ADDRESS))
-        self._proxy_mac = _configured_proxy_mac(self.entries, data)
-        self._proxy_selection = (
-            PROXY_SELECTION_MANUAL if self._proxy_mac else PROXY_SELECTION_AUTO
-        )
-        self._proxy_candidates = _mesh_proxy_candidates(
-            self.fixtures,
-            _configured_proxy_candidates(self.entries),
-            self._proxy_mac,
-        )
-        if not self._proxy_candidates:
-            self._proxy_candidates = (str(data[CONF_ADDRESS]),)
-        proxy_address = self._proxy_mac or self._proxy_candidates[0]
+        self._fallback_data = data
+        self._proxy_mac = ""
+        self._proxy_selection = PROXY_SELECTION_AUTO
+        self._proxy_candidates: tuple[str, ...] = ()
+        proxy_address = self._compute_proxy_targets()
 
         sequence_managers: dict[str, SidusSequenceManager] = hass.data.setdefault(
             _SEQUENCE_MANAGERS, {}
@@ -224,6 +213,8 @@ class SidusMeshNetwork:
         )
         self._status_callbacks: dict[int, list[Any]] = {}
         self._access_callbacks: list[Any] = []
+        self._ready_callbacks: list[Callable[[], None]] = []
+        self._was_ready = False
         settings = SidusTransportSettings(
             hass=hass,
             address=proxy_address,
@@ -245,12 +236,12 @@ class SidusMeshNetwork:
             settings=settings,
             sequence_manager=self._sequence_manager,
             save_sequence=self._async_save_sequence,
-            mode=TRANSPORT_MODE_PERSISTENT,
         )
         self._last_proxy_advertisement_seen: float | None = None
         self._warmup_task: asyncio.Task[None] | None = None
         self._warmup_event = asyncio.Event()
         self._warmup_policy = WarmupRetryPolicy()
+        self._backoff_pending = False
         self._setup_lock = asyncio.Lock()
         self._setup_complete = False
         self._closing = False
@@ -294,14 +285,42 @@ class SidusMeshNetwork:
     def attach_entry(
         self, entry: ConfigEntry, fixtures: list[dict[str, Any]]
     ) -> None:
-        """Attach a config entry and merge its fixture destinations."""
+        """Attach a config entry and merge its lights and proxy preferences."""
 
         self._entry_ids.add(entry.entry_id)
+        # Replace in place so the manual proxy choice (first configured entry)
+        # stays stable when an entry reloads.
+        ids = [candidate.entry_id for candidate in self.entries]
+        if entry.entry_id in ids:
+            self.entries[ids.index(entry.entry_id)] = entry
+        else:
+            self.entries.append(entry)
         known = {_fixture_identity(fixture) for fixture in self.fixtures}
         for fixture in fixtures:
             if _fixture_identity(fixture) not in known:
                 self.fixtures.append(fixture)
                 known.add(_fixture_identity(fixture))
+        address = self._compute_proxy_targets()
+        self._transport.set_proxy_targets(
+            address=address,
+            proxy_selection=self._proxy_selection,
+            proxy_address=self._proxy_mac,
+            proxy_candidates=self._proxy_candidates,
+        )
+
+    def _compute_proxy_targets(self) -> str:
+        """Refresh manual/auto proxy preference and candidates; return target."""
+
+        self._proxy_mac = _configured_proxy_mac(self.entries, self._fallback_data)
+        self._proxy_selection = (
+            PROXY_SELECTION_MANUAL if self._proxy_mac else PROXY_SELECTION_AUTO
+        )
+        self._proxy_candidates = _mesh_proxy_candidates(
+            self.fixtures,
+            _configured_proxy_candidates(self.entries),
+            self._proxy_mac,
+        ) or (str(self._fallback_data[CONF_ADDRESS]),)
+        return self._proxy_mac or self._proxy_candidates[0]
 
     def detach_entry(self, entry_id: str) -> bool:
         """Detach an entry and return true when no users remain."""
@@ -337,7 +356,7 @@ class SidusMeshNetwork:
     def transport_state(self) -> str:
         """Return shared transport state without fixture advertisement gating."""
 
-        state = str(self.transport_metrics.get("state", TRANSPORT_STATE_DISCONNECTED))
+        state = self._transport.state
         if state in _AVAILABLE_TRANSPORT_STATES and not self.connected:
             return TRANSPORT_STATE_DISCONNECTED
         return state
@@ -355,14 +374,22 @@ class SidusMeshNetwork:
         return self._transport.connected
 
     def mark_proxy_advertisement_seen(self, service_info: Any) -> None:
-        """Record proxy candidate advertisement and wake reconnect loop."""
+        """Record proxy candidate advertisement and wake reconnect loop.
+
+        A proxy can keep advertising while refusing connections, so an
+        advertisement never resets or cuts short a pending retry backoff.
+        """
 
         address = str(getattr(service_info, "address", "") or "").strip()
         if not address or not _address_matches(address, self._proxy_candidates):
             return
         self._last_proxy_advertisement_seen = time.time()
-        if not self.is_ready:
+        if self._closing or self.is_ready or self._backoff_pending:
+            return
+        if self._warmup_task is None or self._warmup_task.done():
             self.async_start_warmup("proxy_advertisement")
+        else:
+            self._warmup_event.set()
 
     def subscribe_status(self, node_address: int, callback: Any) -> Any:
         """Subscribe to decoded light status notifications for one node."""
@@ -375,6 +402,27 @@ class SidusMeshNetwork:
                 callbacks.remove(callback)
 
         return _unsubscribe
+
+    def subscribe_ready(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Subscribe to shared transport readiness changes."""
+
+        self._ready_callbacks.append(callback)
+
+        def _unsubscribe() -> None:
+            if callback in self._ready_callbacks:
+                self._ready_callbacks.remove(callback)
+
+        return _unsubscribe
+
+    def _update_ready(self) -> None:
+        """Notify subscribers when shared transport readiness flips."""
+
+        ready = self.is_ready
+        if ready == self._was_ready:
+            return
+        self._was_ready = ready
+        for callback in tuple(self._ready_callbacks):
+            callback()
 
     def subscribe_access(self, callback: Any) -> Any:
         """Subscribe to decrypted access messages on this mesh."""
@@ -403,6 +451,7 @@ class SidusMeshNetwork:
     def _handle_ble_disconnect(self) -> None:
         """Reconnect the shared proxy after an unexpected BLE link drop."""
 
+        self._update_ready()
         self.async_start_warmup("ble_disconnect")
 
     async def async_setup(self) -> None:
@@ -430,19 +479,10 @@ class SidusMeshNetwork:
         if self._warmup_task is not None and not self._warmup_task.done():
             return
 
-        name = f"amaran_{self.entry.entry_id}_mesh_warmup"
-        coroutine = self._async_warmup_loop(reason)
-        create_background_task = getattr(
-            self.hass, "async_create_background_task", None
+        self._warmup_task = self.hass.async_create_background_task(
+            self._async_warmup_loop(reason),
+            name=f"amaran_{self.entry.entry_id}_mesh_warmup",
         )
-        if callable(create_background_task):
-            self._warmup_task = create_background_task(coroutine, name=name)
-        else:
-            create_task = getattr(self.hass, "async_create_task", None)
-            if callable(create_task):
-                self._warmup_task = create_task(coroutine, name=name)
-            else:
-                self._warmup_task = asyncio.create_task(coroutine, name=name)
 
     async def _async_warmup_loop(self, reason: str) -> None:
         backoff = self._warmup_policy
@@ -452,6 +492,9 @@ class SidusMeshNetwork:
                 try:
                     await self._transport.async_warmup()
                 except Exception as err:  # pragma: no cover - backend-specific
+                    self._update_ready()
+                    if self._closing:
+                        return
                     delay = backoff.next_delay()
                     _LOGGER.warning(
                         "Sidus connection warm-up failed lights=%s delay=%.1fs error=%r",
@@ -459,12 +502,22 @@ class SidusMeshNetwork:
                         delay,
                         err,
                     )
-                    with suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(self._warmup_event.wait(), timeout=delay)
+                    # Drop wake-ups that raced the failed attempt; only an
+                    # explicit reconnect request may end the backoff early.
+                    self._warmup_event.clear()
+                    self._backoff_pending = True
+                    try:
+                        with suppress(asyncio.TimeoutError):
+                            await asyncio.wait_for(
+                                self._warmup_event.wait(), timeout=delay
+                            )
+                    finally:
+                        self._backoff_pending = False
                     reason = "retry"
                     continue
 
                 backoff.reset()
+                self._update_ready()
                 _LOGGER.info(
                     "Using BLE connection %s for %s Amaran lights",
                     self.transport_metrics.get("selected_proxy_address"),
@@ -475,6 +528,7 @@ class SidusMeshNetwork:
                 await asyncio.wait_for(
                     self._warmup_event.wait(), timeout=_MESH_MONITOR_INTERVAL
                 )
+            self._update_ready()
             if not self.is_ready:
                 _LOGGER.warning(
                     "Sidus BLE connection disconnected; reconnecting lights=%s reason=%s",
@@ -503,8 +557,10 @@ class SidusMeshNetwork:
                 first_payload_delay=first_payload_delay,
             )
         except Exception:
+            self._update_ready()
             self.async_start_warmup("command_failure")
             raise
+        self._update_ready()
 
     async def async_close(self) -> None:
         """Stop shared reconnect monitor and proxy worker."""
@@ -579,6 +635,7 @@ class AmaranSidusClient:
         )
         self._presence_unavailable_after = DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS
         self._availability_callbacks: list[Any] = []
+        self._ready_unsubscribe: Callable[[], None] | None = None
         self._presence_expire_unsubscribe: Any | None = None
         self._last_command: dict[str, Any] | None = None
         self._last_physical_validation: dict[str, Any] | None = None
@@ -942,6 +999,10 @@ class AmaranSidusClient:
 
         self._seed_last_advertisement_from_cache()
         await self._mesh_network.async_setup()
+        if self._ready_unsubscribe is None:
+            self._ready_unsubscribe = self._mesh_network.subscribe_ready(
+                self._notify_availability_callbacks
+            )
         if self.battery_capable and self._battery_unsubscribe is None:
             self._battery_unsubscribe = self.subscribe_access(
                 self._handle_power_info_update
@@ -996,10 +1057,10 @@ class AmaranSidusClient:
                 first_payload_delay=0.0,
             )
         except Exception as err:
+            # The shared mesh already wakes its reconnect loop on send failure.
             _LOGGER.debug(
                 "Sidus %s poll failed light=%s error=%r", kind, self.name, err
             )
-            self.async_start_warmup("poll_failure")
 
     def async_start_warmup(self, reason: str) -> None:
         """Start or wake background warm-up without blocking HA startup."""
@@ -1042,6 +1103,9 @@ class AmaranSidusClient:
         """Cancel this light's subscriptions without closing the shared mesh."""
 
         self._cancel_presence_expiry()
+        if self._ready_unsubscribe is not None:
+            self._ready_unsubscribe()
+            self._ready_unsubscribe = None
         if self._battery_unsubscribe is not None:
             self._battery_unsubscribe()
             self._battery_unsubscribe = None
@@ -1051,12 +1115,6 @@ class AmaranSidusClient:
         if self._battery_poll_unsub is not None:
             self._battery_poll_unsub()
             self._battery_poll_unsub = None
-
-    async def async_disconnect(self) -> None:
-        """Close client and transport resources."""
-
-        self.async_unload()
-        await self._mesh_network.async_close()
 
     async def async_request_power_status(self, *, capture_seconds: float = 10.0) -> None:
         """Send the debug Sidus power/battery status request and log responses."""
@@ -1369,7 +1427,9 @@ class AmaranSidusClient:
                 first_payload_delay=first_payload_delay,
             )
         except Exception as err:
-            self._mark_command_failure(err)
+            _LOGGER.debug(
+                "Sidus light command failed light=%s error=%r", self.name, err
+            )
             self._last_command.update(
                 {
                     "completed_at": time.time(),
@@ -1384,7 +1444,7 @@ class AmaranSidusClient:
                 "completed_at": time.time(),
                 "status": "proxy_write_complete",
                 "success": True,
-                "transport_state": self.transport_metrics.get("state"),
+                "transport_state": self.transport_state,
             }
         )
 
@@ -1425,16 +1485,6 @@ class AmaranSidusClient:
         )
         self._notify_battery_callbacks()
 
-    def _mark_command_failure(self, err: Exception) -> None:
-        was_available = self.is_available
-        _LOGGER.debug(
-            "Sidus light command failed light=%s error=%r",
-            self.name,
-            err,
-        )
-        if self.is_available != was_available:
-            self._notify_availability_callbacks()
-
     def _fixture_presence_ok(self) -> bool:
         if not self._presence_checking_enabled:
             return True
@@ -1452,6 +1502,7 @@ class AmaranSidusClient:
         ):
             return
         try:
+            from homeassistant.core import callback
             from homeassistant.helpers.event import async_call_later
         except Exception:
             return
@@ -1463,6 +1514,7 @@ class AmaranSidusClient:
         if delay <= 0:
             return
 
+        @callback
         def _expire(_now: Any) -> None:
             self._presence_expire_unsubscribe = None
             self._seed_last_advertisement_from_cache()
@@ -1481,12 +1533,10 @@ class AmaranSidusClient:
             unsubscribe()
 
     def _notify_availability_callbacks(self) -> None:
-        loop = getattr(getattr(self, "hass", None), "loop", None)
+        # Callers are all event-loop callbacks: Bluetooth advertisements, the
+        # presence-expiry timer, and shared mesh readiness changes.
         for callback in tuple(self._availability_callbacks):
-            if loop is not None and loop.is_running():
-                loop.call_soon_threadsafe(callback)
-            else:
-                callback()
+            callback()
 
     def _notify_battery_callbacks(self) -> None:
         loop = getattr(getattr(self, "hass", None), "loop", None)
@@ -1515,18 +1565,19 @@ def _advertisement_seen_at(service_info: Any) -> float:
 
 
 def mesh_network_key(entry: ConfigEntry, fixture: dict[str, Any]) -> str:
-    """Return stable runtime key for entries sharing one mesh proxy."""
+    """Return stable runtime key for entries sharing one mesh transport.
+
+    The manual proxy MAC is deliberately not part of the key: every entry of a
+    mesh shares one BLE session, and the runtime picks the first configured
+    manual proxy.
+    """
 
     data = {**entry.data, **fixture}
     net_key = normalize_hex_key(data[CONF_NET_KEY], field="network key")
     app_key = normalize_hex_key(data[CONF_APP_KEY], field="app key")
     source_address = int(data.get(CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS))
-    proxy_mac = (_entry_proxy_mac(entry, data) or "auto").lower()
     digest = hashlib.sha256(
-        net_key
-        + app_key
-        + source_address.to_bytes(2, "big")
-        + proxy_mac.encode("utf-8")
+        net_key + app_key + source_address.to_bytes(2, "big")
     ).hexdigest()
     return f"mesh_{digest[:24]}"
 

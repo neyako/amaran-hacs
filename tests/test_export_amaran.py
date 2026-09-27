@@ -207,6 +207,38 @@ class ExportAmaranTest(unittest.TestCase):
                 ["brightness", "color_temp"],
             )
 
+    def test_phone_database_exports_each_light_with_its_network_keys(self) -> None:
+        other_net, other_app = "11" * 16, "22" * 16
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "amaran_database"
+            with closing(sqlite3.connect(db_path)) as conn, conn:
+                conn.execute(
+                    "create table meshs (uuid text, net_key text, app_key text,"
+                    " fixtures_ordered_list text, update_time integer)"
+                )
+                conn.execute(
+                    "create table fixtures (mesh_uuid text, mac_address text,"
+                    " code text, name text, node_address integer)"
+                )
+                conn.executemany(
+                    "insert into meshs values (?, ?, ?, ?, ?)",
+                    [("home", NET_KEY, APP_KEY, "", 2), ("studio", other_net, other_app, "", 1)],
+                )
+                conn.executemany(
+                    "insert into fixtures values (?, ?, ?, ?, ?)",
+                    [
+                        ("home", "AA:BB:CC:DD:EE:01", "40095", "amaran T4c  #1", 13),
+                        ("studio", "AA:BB:CC:DD:EE:02", "400U5", "Ace", 11),
+                    ],
+                )
+
+            payload = EXPORT.export_payload(db_path)
+
+        ace, t4c = payload["fixtures"]  # sorted by node address
+        self.assertEqual((t4c["name"], t4c["model"]), ("amaran T4c #1", "amaran T4c"))
+        self.assertEqual((t4c["net_key"], ace["net_key"]), (NET_KEY, other_net))
+        self.assertEqual(ace["app_key"], other_app)
+
     def test_stdout_flag_writes_valid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "amaran.db"

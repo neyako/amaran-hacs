@@ -1,13 +1,10 @@
-"""Fixture import and capability detection helpers."""
+"""Light import and capability detection helpers."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import glob
 import json
-from pathlib import Path
 import re
-import sqlite3
 from typing import Any
 
 from .const import (
@@ -25,8 +22,6 @@ from .const import (
     CONF_FIXTURE_CODE,
     CONF_FIXTURES,
     CONF_IMPORT_JSON,
-    CONF_IMPORT_METHOD,
-    CONF_IMPORT_PATH,
     CONF_MESH_UUID,
     CONF_MODEL,
     CONF_NAME,
@@ -35,7 +30,6 @@ from .const import (
     CONF_PRODUCT_ID,
     CONF_SELECTED_FIXTURE,
     CONF_SELECTED_FIXTURE_IDS,
-    CONF_SETUP_METHOD,
     CONF_SUPPORTED_COLOR_MODES,
 )
 from .product_catalog import (
@@ -45,12 +39,6 @@ from .product_catalog import (
 )
 from .protocol import normalize_hex_key
 
-_DESKTOP_DB_GLOB = (
-    "~/Library/Application Support/amaran Desktop/*_secure_id/amaran.db"
-)
-_DESKTOP_DB_FALLBACK_GLOB = "~/Library/Application Support/amaran Desktop/*/amaran.db"
-
-_PRODUCT_ID_COLUMNS = (CONF_PRODUCT_ID, "productId", "productID", "pid")
 
 
 @dataclass(frozen=True)
@@ -80,39 +68,6 @@ class FixtureImport:
     fixtures: list[dict[str, Any]]
     skipped: list[dict[str, Any]]
     source_path: str
-
-
-def default_desktop_db_path() -> str:
-    """Return the first amaran Desktop DB path if one exists."""
-
-    for pattern in (_DESKTOP_DB_GLOB, _DESKTOP_DB_FALLBACK_GLOB):
-        for path in sorted(glob.glob(str(Path(pattern).expanduser()))):
-            if Path(path).is_file():
-                return path
-    return ""
-
-
-def load_fixture_import(path: str | Path) -> FixtureImport:
-    """Load supported fixtures from an amaran Desktop DB or exported JSON."""
-
-    source = Path(str(path)).expanduser()
-    if not source.exists():
-        raise ValueError(CONF_IMPORT_PATH)
-
-    try:
-        if source.suffix.lower() == ".json":
-            fixtures, skipped = _load_json(source)
-        else:
-            fixtures, skipped = _load_sqlite(source)
-    except (json.JSONDecodeError, sqlite3.Error) as err:
-        raise ValueError(CONF_IMPORT_PATH) from err
-    if not fixtures:
-        raise ValueError("fixtures")
-    return FixtureImport(
-        fixtures=fixtures,
-        skipped=skipped,
-        source_path=str(source),
-    )
 
 
 def load_fixture_import_json(json_text: str) -> FixtureImport:
@@ -237,12 +192,9 @@ def fixture_entry_data(
         CONF_FIXTURE_CATALOG,
         CONF_FIXTURES,
         CONF_IMPORT_JSON,
-        CONF_IMPORT_METHOD,
-        CONF_IMPORT_PATH,
-        CONF_SELECTED_FIXTURE,
+                CONF_SELECTED_FIXTURE,
         CONF_SELECTED_FIXTURE_IDS,
-        CONF_SETUP_METHOD,
-    ):
+        ):
         data.pop(key, None)
     return data
 
@@ -290,11 +242,9 @@ def light_capability_names(data: dict[str, Any]) -> tuple[str, ...]:
     modes = supported_color_modes_for_fixture(data)
     capabilities = ["Brightness"]
     if COLOR_MODE_COLOR_TEMP in modes:
-        capabilities.append("Color temperature")
-    if COLOR_MODE_HS in modes:
-        capabilities.append("Color/HSI")
-    if COLOR_MODE_RGB in modes:
-        capabilities.append("RGB")
+        capabilities.append("White temperature")
+    if COLOR_MODE_HS in modes or COLOR_MODE_RGB in modes:
+        capabilities.append("Color")
     if is_battery_capable_light(data):
         capabilities.append("Battery")
     return tuple(capabilities)
@@ -321,74 +271,9 @@ def fixture_for_unique_id(
     )
 
 
-def _load_sqlite(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    conn = sqlite3.connect(path)
-    try:
-        conn.row_factory = sqlite3.Row
-        mesh_rows = conn.execute(
-            """
-            select uuid, net_key, app_key, fixtures_ordered_list, update_time
-            from mesh
-            order by update_time desc
-            """
-        ).fetchall()
-        if not mesh_rows:
-            raise ValueError("mesh")
-
-        fixture_rows = conn.execute(_fixture_select_sql(conn)).fetchall()
-    finally:
-        conn.close()
-
-    fixtures: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    for row in fixture_rows:
-        mac = str(row["mac_address"] or "").strip()
-        node_address = _optional_int(row["node_address"])
-        code = str(row["code"] or "").strip()
-        name = str(row["name"] or "").strip()
-        product_id = _row_value(row, CONF_PRODUCT_ID)
-        if not mac or node_address is None or node_address <= 1:
-            skipped.append({"name": name, "code": code, "reason": "missing_address"})
-            continue
-
-        profile = detect_fixture_profile(name=name, code=code, product_id=product_id)
-        if not profile.supported:
-            skipped.append({"name": name, "code": code, "reason": "unsupported"})
-            continue
-
-        mesh = _mesh_for_fixture(mesh_rows, row)
-        fixture = _fixture_data(
-            net_key=mesh["net_key"],
-            app_key=mesh["app_key"],
-            mesh_uuid=mesh["uuid"],
-            mac=mac,
-            node_address=node_address,
-            name=name or f"Amaran {profile.model}",
-            model=profile.model,
-            code=code,
-            product_id=product_id,
-            device_uuid=row["device_uuid"] or row["uuid"],
-            color_modes=supported_color_modes_for_fixture(
-                {
-                    CONF_NAME: name,
-                    CONF_MODEL: profile.model,
-                    CONF_FIXTURE_CODE: code,
-                    CONF_PRODUCT_ID: product_id,
-                }
-            ),
-        )
-        fixtures.append(fixture)
-    return fixtures, skipped
-
-
-def _load_json(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return _load_json_payload(payload)
-
-
 def _load_json_payload(payload: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not isinstance(payload, dict):
-        raise ValueError(CONF_IMPORT_PATH)
+        raise ValueError("fixtures")
 
     raw_fixtures = payload.get(CONF_FIXTURES)
     if raw_fixtures is None:
@@ -466,25 +351,6 @@ def _load_json_payload(payload: Any) -> tuple[list[dict[str, Any]], list[dict[st
     return fixtures, skipped
 
 
-def _fixture_select_sql(conn: sqlite3.Connection) -> str:
-    columns = {row[1] for row in conn.execute("pragma table_info(fixtures)").fetchall()}
-    selected = [
-        "uuid",
-        "mac_address",
-        "code",
-        "name",
-        "node_address",
-        "device_uuid",
-        "state",
-    ]
-    product_id_column = next(
-        (column for column in _PRODUCT_ID_COLUMNS if column in columns), None
-    )
-    if product_id_column is not None:
-        selected.append(f'"{product_id_column}" as {CONF_PRODUCT_ID}')
-    return f"select {', '.join(selected)} from fixtures order by node_address"
-
-
 def _fixture_data(
     *,
     net_key: Any,
@@ -520,24 +386,6 @@ def _fixture_data(
         CONF_BATTERY_CAPABLE: bool(battery_capable),
         CONF_BATTERY_PERCENTAGE: _clamp_battery(battery_percentage),
     }
-
-
-def _mesh_for_fixture(mesh_rows: list[sqlite3.Row], fixture: sqlite3.Row) -> sqlite3.Row:
-    if len(mesh_rows) == 1:
-        return mesh_rows[0]
-
-    code = str(fixture["code"] or "")
-    mac_suffix = str(fixture["mac_address"] or "")[-8:].replace(":", "").upper()
-    token = f"{code}-{mac_suffix}"
-    for mesh in mesh_rows:
-        ordered = str(mesh["fixtures_ordered_list"] or "").upper()
-        if token.upper() in ordered or str(fixture["uuid"]).upper() in ordered:
-            return mesh
-    return mesh_rows[0]
-
-
-def _row_value(row: sqlite3.Row, key: str) -> Any:
-    return row[key] if key in row.keys() else None
 
 
 def _normalize_model_text(value: str) -> str:

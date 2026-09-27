@@ -23,11 +23,11 @@ class UserFacingStringTest(unittest.TestCase):
         self.assertNotIn("fixture", values)
         self.assertNotIn("proxy", values)
         self.assertNotIn("transport", values)
-        self.assertIn("export your amaran lights from the desktop app", values)
+        self.assertNotIn("mesh", values)
         # hassfest forbids URLs in step descriptions; the export command lives in
-        # the README, and the import step points users there.
-        self.assertIn("export command is in the project readme", values)
-        self.assertIn("do not share the exported json publicly", values)
+        # the README, and the paste step points users there.
+        self.assertIn("export command from the project readme", values)
+        self.assertIn("so don't share it", values)
 
     def test_readme_prose_does_not_say_fixture(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

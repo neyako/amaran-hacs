@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export amaran Desktop mesh data as paste-ready Home Assistant JSON."""
+"""Export amaran Desktop or phone app lights as paste-ready Home Assistant JSON."""
 
 from __future__ import annotations
 
@@ -24,11 +24,10 @@ DESKTOP_DB_GLOB = (
 DESKTOP_DB_FALLBACK_GLOB = (
     "~/Library/Application Support/amaran Desktop/*/amaran.db"
 )
-DEFAULT_SOURCE_ADDRESS = "0x000f"
-DEFAULT_IV_INDEX = 0
 PRODUCT_ID_COLUMNS = ("product_id", "productId", "productID", "pid")
+# .parent never raises, unlike .parents[1] when piped from "/" as "<stdin>".
 PRODUCT_JSON_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parent.parent
     / "custom_components"
     / "amaran"
     / "product.json"
@@ -121,39 +120,41 @@ def export_payload(db_path: Path) -> dict[str, Any]:
     try:
         with closing(sqlite3.connect(path)) as conn:
             conn.row_factory = sqlite3.Row
-            mesh = load_mesh(conn)
+            meshes = load_meshes(conn)
             fixture_rows = load_fixture_rows(conn)
     except sqlite3.Error as err:
         raise ExportError("database could not be read") from err
 
-    fixtures = [
-        fixture
-        for row in fixture_rows
-        if mesh_contains_fixture(mesh, row)
-        for fixture in [fixture_payload(row)]
-        if fixture is not None
-    ]
-    if not fixtures:
-        fixtures = [
-            fixture
-            for row in fixture_rows
-            for fixture in [fixture_payload(row)]
-            if fixture is not None
-        ]
+    matched = [(row, mesh_for_fixture(meshes, row)) for row in fixture_rows]
+    if not any(mesh for _, mesh in matched):
+        # Older databases don't list their lights; they have one network.
+        matched = [(row, meshes[0]) for row in fixture_rows]
+    fixtures = []
+    for row, mesh in matched:
+        fixture = fixture_payload(row) if mesh else None
+        if fixture is not None:
+            fixture["net_key"] = normalize_key(mesh["net_key"])
+            fixture["app_key"] = normalize_key(mesh["app_key"])
+            fixtures.append(fixture)
     if not fixtures:
         raise ExportError("no fixtures with mac_address and node_address found")
 
     return {
-        "net_key": normalize_key(mesh["net_key"]),
-        "app_key": normalize_key(mesh["app_key"]),
-        "source_address": DEFAULT_SOURCE_ADDRESS,
-        "iv_index": DEFAULT_IV_INDEX,
+        "net_key": normalize_key(meshes[0]["net_key"]),
+        "app_key": normalize_key(meshes[0]["app_key"]),
         "fixtures": fixtures,
     }
 
 
-def load_mesh(conn: sqlite3.Connection) -> sqlite3.Row:
-    columns = table_columns(conn, "mesh")
+def load_meshes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return networks with keys, newest first; the phone app names it meshs."""
+
+    table = "mesh"
+    try:
+        columns = table_columns(conn, table)
+    except ExportError:
+        table = "meshs"
+        columns = table_columns(conn, table)
     if not {"net_key", "app_key"}.issubset(columns):
         raise ExportError("mesh table missing required columns")
 
@@ -163,11 +164,11 @@ def load_mesh(conn: sqlite3.Connection) -> sqlite3.Row:
         if column in columns
     ]
     order = " order by update_time desc" if "update_time" in columns else ""
-    rows = conn.execute(f"select {', '.join(selected)} from mesh{order}").fetchall()
-    for row in rows:
-        if row["net_key"] and row["app_key"]:
-            return row
-    raise ExportError("mesh table has no usable keys")
+    rows = conn.execute(f"select {', '.join(selected)} from {table}{order}").fetchall()
+    rows = [row for row in rows if row["net_key"] and row["app_key"]]
+    if not rows:
+        raise ExportError("mesh table has no usable keys")
+    return rows
 
 
 def load_fixture_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -177,7 +178,7 @@ def load_fixture_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
     selected = [
         column
-        for column in ("uuid", "mac_address", "code", "name", "node_address")
+        for column in ("uuid", "mesh_uuid", "mac_address", "code", "name", "node_address")
         if column in columns
     ]
     product_id_column = next(
@@ -202,11 +203,11 @@ def fixture_payload(row: sqlite3.Row) -> dict[str, Any] | None:
     if not mac or node_address is None:
         return None
 
-    name = str(row["name"] or "").strip() if "name" in row.keys() else ""
+    name = " ".join(str(row["name"] or "").split()) if "name" in row.keys() else ""
     code = str(row["code"] or "").strip() if "code" in row.keys() else ""
     product_id = row["product_id"] if "product_id" in row.keys() else None
     product = lookup_catalog_product(product_id=product_id, code=code, name=name)
-    model = str(product.get("name") or "Unknown") if product else "Unknown"
+    model = str(product.get("name") or "Unknown").strip() if product else "Unknown"
     capabilities = (
         catalog_capabilities(model, product=product)
         if product
@@ -226,6 +227,18 @@ def fixture_payload(row: sqlite3.Row) -> dict[str, Any] | None:
         "node_address": node_address,
         "capabilities": capabilities,
     }
+
+
+def mesh_for_fixture(
+    meshes: list[sqlite3.Row], fixture: sqlite3.Row
+) -> sqlite3.Row | None:
+    """Return the network a light belongs to, if the database says."""
+
+    if "mesh_uuid" in fixture.keys() and fixture["mesh_uuid"]:
+        for mesh in meshes:
+            if "uuid" in mesh.keys() and mesh["uuid"] == fixture["mesh_uuid"]:
+                return mesh
+    return next((mesh for mesh in meshes if mesh_contains_fixture(mesh, fixture)), None)
 
 
 def mesh_contains_fixture(mesh: sqlite3.Row, fixture: sqlite3.Row) -> bool:
