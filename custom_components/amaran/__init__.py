@@ -321,6 +321,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Let Bluetooth discovery offer a removed light again."""
+
+    from homeassistant.components import bluetooth
+
+    if address := entry.data.get(CONF_BLE_MAC) or entry.data.get(CONF_ADDRESS):
+        bluetooth.async_rediscover_address(hass, str(address))
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register debug-only services once."""
 

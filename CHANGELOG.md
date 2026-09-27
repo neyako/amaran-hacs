@@ -27,6 +27,7 @@
   "amaran lights" card per network it sees, and a "New amaran light" card for
   lights not yet added from a network you already set up. Both open the normal
   sign-in or paste setup; nothing is added without you.
+- Removing a light lets Bluetooth discovery offer it again right away.
 
 ## v0.5.0
 

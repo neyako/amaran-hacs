@@ -94,6 +94,7 @@ Discovery only offers setup; it never creates an entry by itself
   sign-in/paste menu. Other brands' Telink mesh lights can also show this card.
 * Network of a configured light: one card per unadded light (unique ID = MAC).
 * Node Identity advertisements (type 0x01) are ignored.
+* Removing an entry calls `async_rediscover_address` so its card can return.
 
 ---
 
