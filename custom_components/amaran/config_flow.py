@@ -55,7 +55,7 @@ from .const import (
     PROXY_SELECTION_MANUAL,
     TRANSPORT_MODE_PERSISTENT,
 )
-from .discovery import bluetooth_discovery_enabled
+from .discovery import advertised_network_id, network_id_for_key
 from .fixtures import (
     FixtureImport,
     fixture_entries_for_selection,
@@ -221,10 +221,28 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth(
         self, discovery_info: bluetooth.BluetoothServiceInfoBleak
     ) -> config_entries.ConfigFlowResult:
-        """Handle Bluetooth discovery."""
+        """Offer setup for lights seen on Bluetooth; never add them directly."""
 
-        if not bluetooth_discovery_enabled(self.hass):
-            return self.async_abort(reason="bluetooth_discovery_disabled")
+        network = advertised_network_id(discovery_info.service_data)
+        if network is None:
+            return self.async_abort(reason="not_supported")
+        known_networks = {
+            network_id_for_key(entry.data[CONF_NET_KEY])
+            for entry in self._async_current_entries(include_ignore=False)
+            if entry.data.get(CONF_NET_KEY)
+        }
+        if network in known_networks:
+            # One card per light not yet added from a network the user has.
+            await self.async_set_unique_id(
+                fixture_unique_id({CONF_ADDRESS: discovery_info.address})
+            )
+            name = "New amaran light"
+        else:
+            # One card per unknown network, not one per light.
+            await self.async_set_unique_id(f"network_{network.hex()}")
+            name = "amaran lights"
+        self._abort_if_unique_id_configured()
+        self.context["title_placeholders"] = {"name": name}
         return await self.async_step_user()
 
     async def async_step_user(

@@ -79,20 +79,21 @@ Prefer parity with reference implementation over new protocol guesses.
 
 ### Discovery
 
-Bluetooth discovery is intentionally disabled.
+Advertisements alone can't create usable lights: they carry no model or keys.
+The old discovery created generic "amaran" devices and duplicates.
 
-Reason:
+Discovery only offers setup; it never creates an entry by itself
+(`discovery.py`, `async_step_bluetooth`):
 
-Advertisements do not contain enough information to create usable Home Assistant
-devices.
-
-Discovery caused:
-
-* duplicate entries
-* generic "amaran" devices
-* user confusion
-
-Setup flow is import-based.
+* Lights advertise the Mesh Proxy service (0x1828) with the network ID,
+  k3(net_key). Manifest matchers: 0x1828 plus Telink (529) or 1014
+  manufacturer data. Telink lights (60x S, Ace 25c, Verge Max) put
+  `00 + MAC + 02 + node address` in manufacturer data; T4c uses 1014 with
+  `01 + MAC + 02 + node address`.
+* Unknown network: one card per network (`network_<id>`) that opens the normal
+  sign-in/paste menu. Other brands' Telink mesh lights can also show this card.
+* Network of a configured light: one card per unadded light (unique ID = MAC).
+* Node Identity advertisements (type 0x01) are ignored.
 
 ---
 
@@ -273,7 +274,7 @@ Do not merge major transport changes without physical-light validation.
 
 Do NOT:
 
-* re-enable Bluetooth discovery
+* create entries straight from Bluetooth discovery
 * create mesh group config entries
 * create one BLE session per light
 * send startup commands

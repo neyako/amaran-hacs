@@ -23,6 +23,10 @@
 - Mark lights unavailable as soon as the connection drops, including the
   external power sensor.
 - Remove the unused short-lived connection mode and other dead code.
+- Bring back Bluetooth discovery as a prompt only: Home Assistant shows one
+  "amaran lights" card per network it sees, and a "New amaran light" card for
+  lights not yet added from a network you already set up. Both open the normal
+  sign-in or paste setup; nothing is added without you.
 
 ## v0.5.0
 

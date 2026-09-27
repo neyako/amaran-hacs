@@ -1,5 +1,6 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Add amaran lights",
@@ -74,7 +75,7 @@
     },
     "abort": {
       "already_configured": "These lights are already added.",
-      "bluetooth_discovery_disabled": "Add lights by signing in with your amaran account."
+      "not_supported": "This Bluetooth device isn't an amaran light."
     }
   },
   "options": {

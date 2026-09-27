@@ -24,10 +24,13 @@ class BrandingTest(unittest.TestCase):
         self.assertEqual(manifest["integration_type"], "device")
         self.assertIn(manifest["iot_class"], {"local_push", "local_polling"})
 
-    def test_manifest_does_not_advertise_bluetooth_discovery(self) -> None:
+    def test_manifest_discovers_only_mesh_proxy_advertisements(self) -> None:
         manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text())
 
-        self.assertNotIn("bluetooth", manifest)
+        self.assertEqual(
+            {matcher["service_uuid"] for matcher in manifest["bluetooth"]},
+            {"00001828-0000-1000-8000-00805f9b34fb"},
+        )
 
     def test_hacs_metadata(self) -> None:
         hacs = json.loads((ROOT / "hacs.json").read_text())

@@ -24,7 +24,6 @@ from custom_components.amaran.const import (
     CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
 )
-from custom_components.amaran.discovery import bluetooth_discovery_enabled
 from custom_components.amaran.fixtures import (
     fixture_device_identifier,
     fixture_entries_for_selection,
@@ -192,25 +191,6 @@ class FixtureSelectionTest(unittest.TestCase):
             fixture_device_identifier(ace),
             "AA:BB:CC:DD:EE:01",
         )
-
-
-class DiscoveryConfigTest(unittest.TestCase):
-    def test_bluetooth_discovery_disabled_by_default(self) -> None:
-        hass = SimpleNamespace(
-            data={},
-            config_entries=SimpleNamespace(async_entries=lambda domain: []),
-        )
-
-        self.assertFalse(bluetooth_discovery_enabled(hass))
-
-    def test_bluetooth_discovery_stays_disabled_when_option_is_present(self) -> None:
-        entry = SimpleNamespace(data={}, options={"enable_discovery": True})
-        hass = SimpleNamespace(
-            data={},
-            config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
-        )
-
-        self.assertFalse(bluetooth_discovery_enabled(hass))
 
 
 class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):

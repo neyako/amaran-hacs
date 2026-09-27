@@ -695,6 +695,14 @@ def _k2(net_key: bytes, p: bytes = b"\x00") -> tuple[int, bytes, bytes]:
     return t1[-1] & 0x7F, t2, t3
 
 
+@lru_cache(maxsize=32)
+def mesh_network_id(net_key: bytes) -> bytes:
+    """Return the 8-byte network ID (k3) lights advertise for a network key."""
+
+    t = _aes_cmac(_s1(b"smk3"), net_key)
+    return _aes_cmac(t, b"id64\x01")[-8:]
+
+
 def _k4(app_key: bytes) -> int:
     salt = _s1(b"smk4")
     t = _aes_cmac(salt, app_key)

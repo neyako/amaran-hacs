@@ -1,6 +1,16 @@
 {
   "domain": "amaran",
   "name": "amaran",
+  "bluetooth": [
+    {
+      "service_uuid": "00001828-0000-1000-8000-00805f9b34fb",
+      "manufacturer_id": 529
+    },
+    {
+      "service_uuid": "00001828-0000-1000-8000-00805f9b34fb",
+      "manufacturer_id": 1014
+    }
+  ],
   "codeowners": ["@neyako"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
