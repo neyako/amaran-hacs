@@ -120,12 +120,18 @@ def load_fixture_import_json(json_text: str) -> FixtureImport:
 
     try:
         payload = json.loads(json_text)
-        fixtures, skipped = _load_json_payload(payload)
     except json.JSONDecodeError as err:
         raise ValueError(CONF_IMPORT_JSON) from err
+    return load_fixture_import_payload(payload, source="pasted_json")
+
+
+def load_fixture_import_payload(payload: Any, *, source: str) -> FixtureImport:
+    """Load supported fixtures from an already-decoded export payload."""
+
+    fixtures, skipped = _load_json_payload(payload)
     if not fixtures:
         raise ValueError("fixtures")
-    return FixtureImport(fixtures=fixtures, skipped=skipped, source_path="pasted_json")
+    return FixtureImport(fixtures=fixtures, skipped=skipped, source_path=source)
 
 
 def detect_fixture_profile(

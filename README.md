@@ -19,9 +19,8 @@ Restarting Home Assistant leaves your lights as they are.
 
 ## Setup
 
-You'll need Home Assistant, plus a Mac or Windows
-computer with Python 3 and amaran Desktop installed. Your lights should already
-be added to amaran Desktop.
+You'll need Home Assistant and an amaran account with your lights already added
+in the amaran app.
 
 This integration needs a Bluetooth connection to the lights. If your Home Assistant machine doesn't have Bluetooth, is too far from the lights, or you often move your lights around, use an [ESPHome Bluetooth Proxy](https://esphome.io/components/bluetooth_proxy/) near the lights.
 
@@ -40,7 +39,7 @@ Install this integration with [HACS](https://hacs.xyz/) (Home Assistant Communit
 
 1. Download **Source code (zip)** from the [latest release](https://github.com/neyako/amaran-hacs/releases/latest) and extract it.
 2. Copy `custom_components/amaran` into the `custom_components` directory in your Home Assistant configuration folder (the folder containing `configuration.yaml`). Create `custom_components` if it does not exist.
-3. Restart Home Assistant, then [export your lights](#2-export-your-lights).
+3. Restart Home Assistant, then [add your lights](#2-add-your-lights).
 
 #### CLI install
 
@@ -53,11 +52,25 @@ Install this integration with [HACS](https://hacs.xyz/) (Home Assistant Communit
      | tar -xz --strip-components=2 -C custom_components amaran-hacs-0.5.0/custom_components/amaran
    ```
 
-3. Restart Home Assistant, then [export your lights](#2-export-your-lights).
+3. Restart Home Assistant, then [add your lights](#2-add-your-lights).
 
 </details>
 
-### 2. Export your lights
+### 2. Add your lights
+
+[![Add amaran to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=amaran)
+
+1. Use the button above, or go to **Settings > Devices & services > Add integration** in Home Assistant.
+2. Search for **amaran** and choose **Sign in with your amaran account**.
+3. Enter the email or phone number and password you use in the amaran app.
+4. Select the lights you want to add and submit.
+
+Home Assistant reads your lights from your account once. It doesn't save your
+password. Each selected light gets its own entry. Sign in again later to add
+lights you skipped or added to the app since.
+
+<details>
+<summary>Add lights from amaran Desktop instead</summary>
 
 Run the command below on the computer where you use amaran Desktop. It reads
 your saved lights and creates the setup information Home Assistant needs.
@@ -82,17 +95,10 @@ its contents.
 **Close amaran Desktop before continuing. Keep it closed while controlling
 your lights from Home Assistant, as it can interfere with the connection.**
 
-### 3. Add your lights
+Then add the integration as above, choose **Paste an export from amaran
+Desktop**, paste the export, and leave the advanced settings alone.
 
-[![Add amaran to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=amaran)
-
-1. Use the button above, or go to **Settings > Devices & services > Add integration** in Home Assistant.
-2. Search for **amaran** and choose the import option.
-3. Choose JSON import and paste your export. Leave the advanced settings alone.
-4. Select the lights you want to add and submit.
-
-Each selected light gets its own entry. You can reuse the export later to add
-lights you skipped, or run the export again after adding new lights to Desktop.
+</details>
 
 ## Using your lights
 
