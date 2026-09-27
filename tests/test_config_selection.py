@@ -231,7 +231,9 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=1,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
 
         migrated = await async_migrate_entry(hass, entry)
 
@@ -258,7 +260,9 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=2,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
 
         migrated = await async_migrate_entry(hass, entry)
 
@@ -288,7 +292,9 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=3,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
         _install_config_entry_stub()
 
         migrated = await async_migrate_entry(hass, entry)
@@ -353,6 +359,10 @@ def _fixture(name: str, model: str, mac: str, node_address: int) -> dict:
         CONF_BATTERY_CAPABLE: "25c" in model.lower(),
     }
 
+
+
+async def _run_in_executor(func, *args):
+    return func(*args)
 
 if __name__ == "__main__":
     unittest.main()

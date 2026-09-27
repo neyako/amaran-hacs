@@ -53,6 +53,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry.version == 2 and entry.minor_version >= 3:
         return True
 
+    # Capability lookups read the bundled catalog; cache it off the event loop.
+    await hass.async_add_executor_job(product_catalog)
     data = dict(entry.data)
     _normalize_legacy_proxy_settings(data, entry.options)
     grouped = bool(data.get(CONF_FIXTURE_CATALOG) or data.get(CONF_FIXTURES))
