@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- New setups pick a free address to send from instead of the shared 0x7FFF,
+  or reuse the one this Home Assistant already uses on that network. A second
+  Home Assistant or a reinstall no longer starts behind a counter your lights
+  already saw, which made them silently ignore every command. Leave the
+  Advanced address blank for this; existing lights keep their address.
+
 ## v0.6.0
 
 - Add "Sign in with your amaran account" setup. Home Assistant signs in once,

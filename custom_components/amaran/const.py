@@ -44,6 +44,11 @@ DEFAULT_SEQUENCE = 100000
 # counting up from 2, so the old default (15) collided with real lights.
 DEFAULT_SOURCE_ADDRESS = 0x7FFF
 LEGACY_SOURCE_ADDRESS = 0x000F
+# New setups pick their address from here unless this Home Assistant already
+# sends on that network. Lights drop messages whose counter is at or below the
+# last one seen from an address, so a fresh install must not reuse the address
+# of another install (every entry before 0.6.1 used DEFAULT_SOURCE_ADDRESS).
+SOURCE_ADDRESS_POOL = range(0x7000, DEFAULT_SOURCE_ADDRESS)
 DEFAULT_TTL = 7
 DEFAULT_ENABLE_PRESENCE_CHECKING = False
 DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS = 120.0
