@@ -40,7 +40,10 @@ CONF_TRANSPORT_MODE = "transport_mode"
 DEFAULT_IV_INDEX = 0
 DEFAULT_NODE_ADDRESS = 2
 DEFAULT_SEQUENCE = 100000
-DEFAULT_SOURCE_ADDRESS = 0x000F
+# Home Assistant's own mesh address. The amaran apps give lights addresses
+# counting up from 2, so the old default (15) collided with real lights.
+DEFAULT_SOURCE_ADDRESS = 0x7FFF
+LEGACY_SOURCE_ADDRESS = 0x000F
 DEFAULT_TTL = 7
 DEFAULT_ENABLE_PRESENCE_CHECKING = False
 DEFAULT_PRESENCE_UNAVAILABLE_AFTER_SECONDS = 120.0
@@ -76,6 +79,7 @@ MESH_PROXY_IN_UUID = "00002add-0000-1000-8000-00805f9b34fb"
 MESH_PROXY_OUT_UUID = "00002ade-0000-1000-8000-00805f9b34fb"
 
 SIDUS_ACCESS_OPCODE = 0x26
+MESH_ALL_NODES_ADDRESS = 0xFFFF
 
 # Bluetooth Mesh proxy filter types (Mesh Profile 6.5). A reject (deny) list
 # that is left empty makes the proxy forward every message to us, which is how

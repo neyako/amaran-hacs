@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from .const import (
@@ -13,15 +15,19 @@ from .const import (
     CONF_FIXTURES,
     CONF_MODEL,
     CONF_NAME,
+    CONF_NODE_ADDRESS,
     CONF_PROXY_ADDRESS,
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
     CONF_SELECTED_FIXTURE_IDS,
+    CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
     DEFAULT_POWER_STATUS_CAPTURE_SECONDS,
     DEFAULT_PRESENCE_SCAN_DURATION_SECONDS,
     DEFAULT_PRESENCE_SCAN_INTERVAL_SECONDS,
+    DEFAULT_SOURCE_ADDRESS,
     DOMAIN,
+    LEGACY_SOURCE_ADDRESS,
     MANUFACTURER,
     PROXY_SELECTION_AUTO,
     SERVICE_FIELD_CAPTURE_SECONDS,
@@ -50,12 +56,18 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.version > 2:
         return False
-    if entry.version == 2 and entry.minor_version >= 3:
+    if entry.version == 2 and entry.minor_version >= 4:
+        return True
+    if entry.version == 2 and entry.minor_version == 3:
+        data = _with_current_source_address(entry.data)
+        await _async_move_source_identity(hass, entry, entry.data, data)
+        hass.config_entries.async_update_entry(entry, data=data, minor_version=4)
         return True
 
     # Capability lookups read the bundled catalog; cache it off the event loop.
     await hass.async_add_executor_job(product_catalog)
-    data = dict(entry.data)
+    data = _with_current_source_address(entry.data)
+    await _async_move_source_identity(hass, entry, entry.data, data)
     _normalize_legacy_proxy_settings(data, entry.options)
     grouped = bool(data.get(CONF_FIXTURE_CATALOG) or data.get(CONF_FIXTURES))
     fixtures = _fixtures_for_entry(entry)
@@ -96,7 +108,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         title=str(primary_data[CONF_NAME]),
         unique_id=fixture_unique_id(primary_data),
         version=2,
-        minor_version=3,
+        minor_version=4,
     )
 
     if grouped:
@@ -113,6 +125,47 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             len(migration_fixtures),
         )
     return True
+
+
+def _with_current_source_address(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Move entries off the old default address, which lights can also get."""
+
+    data = dict(data)
+    if int(data.get(CONF_SOURCE_ADDRESS, LEGACY_SOURCE_ADDRESS)) == LEGACY_SOURCE_ADDRESS:
+        data[CONF_SOURCE_ADDRESS] = DEFAULT_SOURCE_ADDRESS
+    return data
+
+
+async def _async_move_source_identity(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    old_data: Mapping[str, Any],
+    new_data: Mapping[str, Any],
+) -> None:
+    """Keep entity IDs and cached state when the source address moves.
+
+    Entity unique IDs and the light state cache include the source address.
+    """
+
+    old = int(old_data.get(CONF_SOURCE_ADDRESS, LEGACY_SOURCE_ADDRESS))
+    new = int(new_data[CONF_SOURCE_ADDRESS])
+    if old == new:
+        return
+
+    from homeassistant.helpers import entity_registry as er
+
+    from .state_store import async_move_light_state
+
+    pattern = re.compile(rf"_src_{old}(?=_|$)")
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if pattern.search(entity.unique_id):
+            registry.async_update_entity(
+                entity.entity_id,
+                new_unique_id=pattern.sub(f"_src_{new}", entity.unique_id),
+            )
+    if CONF_NODE_ADDRESS in old_data:
+        await async_move_light_state(hass, old_data, old, new)
 
 
 def _fixture_entry_data_with_capabilities(

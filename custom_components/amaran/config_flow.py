@@ -105,7 +105,7 @@ def _validate_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
     except ValueError as err:
         raise ValueError(CONF_NODE_ADDRESS) from err
     _validate_advanced(data)
-    if not 1 <= data[CONF_NODE_ADDRESS] <= 0x03FF:
+    if not 1 <= data[CONF_NODE_ADDRESS] <= 0x7FFF:
         raise ValueError(CONF_NODE_ADDRESS)
     if data[CONF_NODE_ADDRESS] == data[CONF_SOURCE_ADDRESS]:
         raise ValueError(CONF_SOURCE_ADDRESS)
@@ -123,7 +123,7 @@ def _validate_advanced(data: dict[str, Any]) -> None:
 
     _normalize_proxy_settings(data)
     for key, default, maximum, minimum in (
-        (CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS, 0x03FF, 1),
+        (CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS, 0x7FFF, 1),
         (CONF_IV_INDEX, DEFAULT_IV_INDEX, 0xFFFFFFFF, 0),
         (CONF_SEQUENCE, DEFAULT_SEQUENCE, 0xFFFFFF, 0),
         (CONF_TTL, DEFAULT_TTL, 0x7F, 0),
@@ -203,7 +203,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle an amaran config flow."""
 
     VERSION = 2
-    MINOR_VERSION = 3
+    MINOR_VERSION = 4
 
     @staticmethod
     @callback

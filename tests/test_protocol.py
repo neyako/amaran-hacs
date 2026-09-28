@@ -12,6 +12,7 @@ from custom_components.amaran.protocol import (
     build_proxy_filter_pdu,
     cct_payload_percent,
     decode_mesh_proxy_access,
+    decode_secure_network_beacon,
     decode_sidus_power_info_payload,
     decode_sidus_status_payload,
     derive_mesh_keys,
@@ -441,6 +442,38 @@ class StatusPayloadTest(unittest.TestCase):
         self.assertIsNotNone(decoded)
         self.assertIsNotNone(decoded.sidus_power_info)
         self.assertEqual(decoded.sidus_power_info.battery_percentage, 53)
+
+
+class NetworkIvIndexTest(unittest.TestCase):
+    def test_secure_network_beacon_matches_mesh_spec_sample(self) -> None:
+        # Mesh Profile 1.0.1, 8.4.1 Secure Network beacon sample data.
+        net_key = bytes.fromhex("7dd7364cd842ad18c17c2b820c84c3d6")
+        pdu = bytes.fromhex("01" "01003ecaff672f673370123456788ea261582f364f6f")
+
+        beacon = decode_secure_network_beacon(net_key=net_key, proxy_pdu=pdu)
+
+        self.assertEqual((beacon.iv_index, beacon.iv_update), (0x12345678, False))
+        forged = pdu[:-1] + bytes([pdu[-1] ^ 1])
+        self.assertIsNone(decode_secure_network_beacon(net_key=net_key, proxy_pdu=forged))
+        self.assertIsNone(decode_secure_network_beacon(net_key=NET_KEY, proxy_pdu=pdu))
+
+    def test_decode_uses_previous_iv_index_when_ivi_bit_differs(self) -> None:
+        pdu = build_mesh_proxy_pdu(
+            net_key=NET_KEY,
+            app_key=APP_KEY,
+            src=0x000B,
+            dst=0x0001,
+            seq=7,
+            iv_index=4,
+            sidus_payload=status_request_payload(),
+        )
+
+        decoded = decode_mesh_proxy_access(
+            net_key=NET_KEY, app_key=APP_KEY, iv_index=5, proxy_pdu=pdu
+        )
+
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.sequence, 7)
 
 
 class ProxyFilterTest(unittest.TestCase):

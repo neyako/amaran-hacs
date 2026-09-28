@@ -255,6 +255,23 @@ the light entity and uses its existing service/encoder path.
 
 ---
 
+### Sequence Numbers and IV Index
+
+* Home Assistant sends from `DEFAULT_SOURCE_ADDRESS` 0x7FFF. The apps give
+  lights addresses counting up from 2; entries on the old default 15 migrate
+  to 0x7FFF (config entry 2.4). Entity unique IDs and the light state cache
+  include the source address, so moving it must move both
+  (`_async_move_source_identity`); the sequence store starts fresh.
+* Proxies send an authenticated Secure Network beacon on connect. The sequence
+  manager tracks its IV index: send with IV-1 while an IV update is in
+  progress, switch (sequence restarts at 0, proxy filter renewed) once it
+  completes. Received PDUs pick IV or IV-1 from their IVI bit.
+* Never initiate an IV update: the amaran apps must keep working.
+* State is polled with one status request to all nodes (0xFFFF) per network
+  every 30s; only battery lights add their own 60s power poll.
+
+---
+
 ### Before Large Refactors
 
 Run manual tests:

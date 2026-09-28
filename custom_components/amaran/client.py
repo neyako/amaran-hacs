@@ -49,6 +49,7 @@ from .const import (
     DEFAULT_SEQUENCE,
     DEFAULT_SOURCE_ADDRESS,
     DEFAULT_STATE_POLL_INTERVAL_SECONDS,
+    MESH_ALL_NODES_ADDRESS,
     DEFAULT_TTL,
     DOMAIN,
     MAX_COLOR_TEMP_KELVIN,
@@ -102,7 +103,13 @@ _AVAILABLE_TRANSPORT_STATES = {TRANSPORT_STATE_PROXY_READY}
 
 
 class SidusSequenceManager:
-    """Shared sequence state for one mesh key/source/IV tuple."""
+    """Shared sequence and IV index state for one mesh key and source address.
+
+    ``iv_index`` is the IV index we transmit with; ``sequence`` counts within
+    it. Secure Network beacons report the network's IV index; the transport
+    worker calls ``switch_iv_if_needed`` right before reserving sequences, so
+    one batch never mixes two IV indexes.
+    """
 
     def __init__(self, hass: HomeAssistant, storage_key: str) -> None:
         self._store: Store[dict[str, int]] = Store(
@@ -110,8 +117,37 @@ class SidusSequenceManager:
         )
         self.lock = asyncio.Lock()
         self.sequence = DEFAULT_SEQUENCE
+        self.iv_index = DEFAULT_IV_INDEX
+        self.network_iv_index = DEFAULT_IV_INDEX
+        self._iv_update = False
         self._loaded = False
         self._persisted_high_water = -1
+
+    def note_beacon(self, iv_index: int, *, iv_update: bool) -> None:
+        """Record the network IV index from an authenticated beacon."""
+
+        # Mesh Profile 3.10.5: ignore a lower index or a jump past recovery.
+        if not self.network_iv_index <= iv_index <= self.network_iv_index + 42:
+            return
+        self.network_iv_index = iv_index
+        self._iv_update = iv_update
+
+    def switch_iv_if_needed(self) -> bool:
+        """Move to the IV index the network uses now; return true if it moved.
+
+        During an IV update nodes still send with the previous index, so we do
+        too; once it completes, sequence numbers restart at zero.
+        """
+
+        target = self.network_iv_index - (
+            1 if self._iv_update and self.network_iv_index > 0 else 0
+        )
+        if target <= self.iv_index:
+            return False
+        self.iv_index = target
+        self.sequence = 0
+        self._persisted_high_water = -1
+        return True
 
     async def async_setup(
         self,
@@ -124,13 +160,21 @@ class SidusSequenceManager:
         """Load persisted sequence once and merge it with entry data."""
 
         if self._loaded:
-            self.sequence = max(self.sequence, initial_sequence)
+            if self.iv_index == iv_index:
+                self.sequence = max(self.sequence, initial_sequence)
             return
 
         self.sequence = initial_sequence
+        self.iv_index = iv_index
         data = await self._store.async_load()
+        stored_iv = int((data or {}).get(CONF_IV_INDEX, iv_index))
+        if stored_iv > iv_index:
+            # Learned from beacons; the stored sequence belongs to this index.
+            self.iv_index = stored_iv
+            self.sequence = 0
         if data and CONF_SEQUENCE in data:
             self.sequence = max(self.sequence, int(data[CONF_SEQUENCE]))
+        self.network_iv_index = self.iv_index
         self._loaded = True
         self._persisted_high_water = self.sequence
         _LOGGER.debug(
@@ -138,12 +182,10 @@ class SidusSequenceManager:
             self.sequence,
             node_address,
             source_address,
-            iv_index,
+            self.iv_index,
         )
 
-    async def async_save(
-        self, *, node_address: int, source_address: int, iv_index: int
-    ) -> None:
+    async def async_save(self, *, node_address: int, source_address: int) -> None:
         """Persist a sequence high-water mark ahead of current use.
 
         We only write to disk when the in-memory sequence reaches the value last
@@ -163,7 +205,7 @@ class SidusSequenceManager:
                 CONF_SEQUENCE: high_water,
                 CONF_NODE_ADDRESS: node_address,
                 CONF_SOURCE_ADDRESS: source_address,
-                CONF_IV_INDEX: iv_index,
+                CONF_IV_INDEX: self.iv_index,
             }
         )
         self._persisted_high_water = high_water
@@ -223,7 +265,6 @@ class SidusMeshNetwork:
             app_key=self._app_key,
             node_address=self._node_address,
             source_address=self._source_address,
-            iv_index=self._iv_index,
             ttl=self._ttl,
             proxy_selection=self._proxy_selection,
             proxy_address=self._proxy_mac,
@@ -242,6 +283,7 @@ class SidusMeshNetwork:
         self._warmup_event = asyncio.Event()
         self._warmup_policy = WarmupRetryPolicy()
         self._backoff_pending = False
+        self._state_poll_unsub: Any | None = None
         self._setup_lock = asyncio.Lock()
         self._setup_complete = False
         self._closing = False
@@ -467,7 +509,40 @@ class SidusMeshNetwork:
                 iv_index=self._iv_index,
             )
             await self._transport.async_setup()
+            self._start_state_poll()
             self._setup_complete = True
+
+    def _start_state_poll(self) -> None:
+        """Poll every light's state with one broadcast request.
+
+        Lights only report state when asked, so without polling a knob change
+        never reaches HA. One request to all nodes instead of one per light
+        saves sequence numbers and Bluetooth traffic; each light answers with
+        its own status report, routed by source address.
+        """
+
+        from homeassistant.helpers.event import async_track_time_interval
+
+        self._state_poll_unsub = async_track_time_interval(
+            self.hass,
+            self._async_poll_state,
+            timedelta(seconds=DEFAULT_STATE_POLL_INTERVAL_SECONDS),
+        )
+
+    async def _async_poll_state(self, _now: Any = None) -> None:
+        if not self.is_ready:
+            return
+        try:
+            await self.async_send_siduses(
+                status_request_payloads(),
+                node_address=MESH_ALL_NODES_ADDRESS,
+                fixture_name="all lights",
+                fixture_mac=None,
+                first_payload_delay=0.0,
+            )
+        except Exception as err:
+            # async_send_siduses already wakes the reconnect loop on failure.
+            _LOGGER.debug("Sidus state poll failed error=%r", err)
 
     def async_start_warmup(self, reason: str) -> None:
         """Start or wake shared connect/reconnect monitor."""
@@ -568,6 +643,9 @@ class SidusMeshNetwork:
         if self._closing:
             return
         self._closing = True
+        if self._state_poll_unsub is not None:
+            self._state_poll_unsub()
+            self._state_poll_unsub = None
         self._warmup_event.set()
         if self._warmup_task is not None:
             self._warmup_task.cancel()
@@ -580,7 +658,6 @@ class SidusMeshNetwork:
         await self._sequence_manager.async_save(
             node_address=self._node_address,
             source_address=self._source_address,
-            iv_index=self._iv_index,
         )
 
 
@@ -653,7 +730,6 @@ class AmaranSidusClient:
         self._battery_power_info: dict[str, Any] | None = None
         self._battery_callbacks: list[Any] = []
         self._battery_unsubscribe: Any | None = None
-        self._state_poll_unsub: Any | None = None
         self._battery_poll_unsub: Any | None = None
 
     @property
@@ -1010,33 +1086,20 @@ class AmaranSidusClient:
         self._start_polling()
 
     def _start_polling(self) -> None:
-        """Schedule periodic state (and battery) polls to keep HA in sync.
+        """Schedule battery polls; the shared mesh polls state for all lights.
 
-        The light only reports its state when asked, so without polling a
-        physical knob change never reaches HA and the battery stays unknown.
         Each poll is a harmless status request that never changes the light, and
         is skipped while the shared transport is not ready (e.g. at startup).
         """
 
         from homeassistant.helpers.event import async_track_time_interval
 
-        if self._state_poll_unsub is None:
-            self._state_poll_unsub = async_track_time_interval(
-                self.hass,
-                self._async_poll_state,
-                timedelta(seconds=DEFAULT_STATE_POLL_INTERVAL_SECONDS),
-            )
         if self.battery_capable and self._battery_poll_unsub is None:
             self._battery_poll_unsub = async_track_time_interval(
                 self.hass,
                 self._async_poll_battery,
                 timedelta(seconds=DEFAULT_BATTERY_POLL_INTERVAL_SECONDS),
             )
-
-    async def _async_poll_state(self, _now: Any = None) -> None:
-        """Pull the light's current state so manual (knob) changes sync to HA."""
-
-        await self._async_send_poll(status_request_payloads(), kind="state")
 
     async def _async_poll_battery(self, _now: Any = None) -> None:
         """Pull the light's battery/power report for the battery sensor."""
@@ -1109,9 +1172,6 @@ class AmaranSidusClient:
         if self._battery_unsubscribe is not None:
             self._battery_unsubscribe()
             self._battery_unsubscribe = None
-        if self._state_poll_unsub is not None:
-            self._state_poll_unsub()
-            self._state_poll_unsub = None
         if self._battery_poll_unsub is not None:
             self._battery_poll_unsub()
             self._battery_poll_unsub = None

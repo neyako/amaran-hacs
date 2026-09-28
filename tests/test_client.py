@@ -137,11 +137,47 @@ def _make_sequence_manager(store: _CountingStore) -> SidusSequenceManager:
     return manager
 
 
+class IvIndexTest(unittest.IsolatedAsyncioTestCase):
+    async def _manager(self, store: _CountingStore) -> SidusSequenceManager:
+        manager = _make_sequence_manager(store)
+        await manager.async_setup(
+            initial_sequence=100000, node_address=2, source_address=0x7FFF, iv_index=0
+        )
+        return manager
+
+    async def test_switches_after_iv_update_completes_and_restarts_sequence(self) -> None:
+        store = _CountingStore()
+        manager = await self._manager(store)
+
+        manager.note_beacon(1, iv_update=True)
+        self.assertFalse(manager.switch_iv_if_needed())  # still sending with 0
+
+        manager.note_beacon(1, iv_update=False)
+        self.assertTrue(manager.switch_iv_if_needed())
+        self.assertEqual((manager.iv_index, manager.sequence), (1, 0))
+
+        manager.sequence += 1
+        await manager.async_save(node_address=2, source_address=0x7FFF)
+        self.assertEqual(store.data["iv_index"], 1)
+        reloaded = await self._manager(store)
+        self.assertEqual(reloaded.iv_index, 1)
+        self.assertEqual(reloaded.sequence, store.data["sequence"])
+
+    async def test_ignores_lower_or_implausible_beacons(self) -> None:
+        manager = await self._manager(_CountingStore())
+        manager.note_beacon(3, iv_update=False)
+
+        manager.note_beacon(2, iv_update=False)
+        manager.note_beacon(3 + 43, iv_update=False)
+
+        self.assertEqual(manager.network_iv_index, 3)
+
+
 class SequencePersistenceBatchingTest(unittest.IsolatedAsyncioTestCase):
     async def _reserve_and_save(self, manager: SidusSequenceManager) -> None:
         # Mirror what the transport does per send: bump sequence, then save.
         manager.sequence += 1
-        await manager.async_save(node_address=2, source_address=0x000F, iv_index=0)
+        await manager.async_save(node_address=2, source_address=0x000F)
 
     async def test_persists_high_water_ahead_of_use(self) -> None:
         store = _CountingStore()
@@ -484,7 +520,7 @@ class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         fixtures = _fixtures()
-        hass = FakeTaskHass()
+        hass = FakePollHass()
         entry = FakeEntry(
             {CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F},
             {CONF_ENABLE_PRESENCE_CHECKING: False},
@@ -497,7 +533,10 @@ class SharedMeshReconnectTest(unittest.IsolatedAsyncioTestCase):
             for fixture in fixtures
         ]
 
-        await mesh.async_setup()
+        with mock.patch.dict(
+            sys.modules, {"homeassistant.helpers.event": _make_event_module()}
+        ):
+            await mesh.async_setup()
         mesh.async_start_warmup("reload")
         await _wait_for(lambda: transport.warmup_count == 1)
 
@@ -754,14 +793,27 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         entry = FakeEntry(dict(fixture))
         return AmaranSidusClient(FakePollHass(), entry, fixture, mesh_network=mesh)
 
-    async def test_state_poll_sends_status_request_when_ready(self) -> None:
-        mesh = FakePollMesh(ready=True)
-        client = self._make_client(battery_capable=True, mesh=mesh)
-        await client._async_poll_state()
-        self.assertEqual(len(mesh.sent), 1)
-        payloads, node = mesh.sent[0]
-        self.assertEqual(node, 0x000B)
-        self.assertEqual(payloads, status_request_payloads())
+    async def test_mesh_polls_all_lights_with_one_broadcast(self) -> None:
+        fixtures = _fixtures()
+        entry = FakeEntry({CONF_FIXTURES: fixtures, CONF_SOURCE_ADDRESS: 0x000F})
+        mesh = SidusMeshNetwork(FakePollHass(), entry, fixtures)
+        sent: list[tuple[list[bytes], int]] = []
+
+        async def _send(payloads: list[bytes], *, node_address: int, **_: Any) -> None:
+            sent.append((payloads, node_address))
+
+        with (
+            mock.patch.object(
+                SidusMeshNetwork, "is_ready", new_callable=mock.PropertyMock
+            ) as is_ready,
+            mock.patch.object(mesh, "async_send_siduses", _send),
+        ):
+            is_ready.return_value = False
+            await mesh._async_poll_state()
+            is_ready.return_value = True
+            await mesh._async_poll_state()
+
+        self.assertEqual(sent, [(status_request_payloads(), 0xFFFF)])
 
     async def test_battery_poll_sends_power_request_when_ready(self) -> None:
         mesh = FakePollMesh(ready=True)
@@ -774,7 +826,6 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
     async def test_poll_skips_when_transport_not_ready(self) -> None:
         mesh = FakePollMesh(ready=False)
         client = self._make_client(battery_capable=True, mesh=mesh)
-        await client._async_poll_state()
         await client._async_poll_battery()
         self.assertEqual(mesh.sent, [])
 
@@ -794,24 +845,17 @@ class PollTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         self.assertEqual(received, [status])
 
-    def test_start_polling_schedules_state_and_battery_for_battery_light(self) -> None:
-        mesh = FakePollMesh(ready=True)
-        client = self._make_client(battery_capable=True, mesh=mesh)
-        client._start_polling()
-        intervals = sorted(
-            record["interval"].total_seconds()
-            for record in client.hass.tracked_intervals
-        )
-        self.assertEqual(intervals, [30.0, 60.0])
+    def test_lights_poll_only_their_battery(self) -> None:
+        battery = self._make_client(battery_capable=True, mesh=FakePollMesh(ready=True))
+        plain = self._make_client(battery_capable=False, mesh=FakePollMesh(ready=True))
+        battery._start_polling()
+        plain._start_polling()
 
-    def test_start_polling_schedules_state_only_for_non_battery_light(self) -> None:
-        mesh = FakePollMesh(ready=True)
-        client = self._make_client(battery_capable=False, mesh=mesh)
-        client._start_polling()
-        self.assertEqual(len(client.hass.tracked_intervals), 1)
         self.assertEqual(
-            client.hass.tracked_intervals[0]["interval"].total_seconds(), 30.0
+            [record["interval"].total_seconds() for record in battery.hass.tracked_intervals],
+            [60.0],
         )
+        self.assertEqual(plain.hass.tracked_intervals, [])
 
     async def test_entry_unload_cancels_client_subscriptions_before_network_release(self) -> None:
         from custom_components.amaran import async_unload_entry
