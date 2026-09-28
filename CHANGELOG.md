@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.0
 
 - Add "Sign in with your amaran account" setup. Home Assistant signs in once,
   reads the lights and keys the amaran app syncs to the account, and stores

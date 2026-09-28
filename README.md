@@ -44,12 +44,12 @@ Install this integration with [HACS](https://hacs.xyz/) (Home Assistant Communit
 #### CLI install
 
 1. Open a terminal in your Home Assistant configuration directory (the folder containing `configuration.yaml`).
-2. Download and extract release `v0.5.0`:
+2. Download and extract release `v0.6.0`:
 
    ```bash
    mkdir -p custom_components
-   curl -fL https://github.com/neyako/amaran-hacs/archive/refs/tags/v0.5.0.tar.gz \
-     | tar -xz --strip-components=2 -C custom_components amaran-hacs-0.5.0/custom_components/amaran
+   curl -fL https://github.com/neyako/amaran-hacs/archive/refs/tags/v0.6.0.tar.gz \
+     | tar -xz --strip-components=2 -C custom_components amaran-hacs-0.6.0/custom_components/amaran
    ```
 
 3. Restart Home Assistant, then [add your lights](#2-add-your-lights).
