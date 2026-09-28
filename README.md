@@ -60,7 +60,7 @@ Install this integration with [HACS](https://hacs.xyz/) (Home Assistant Communit
 
 [![Add amaran to Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=amaran)
 
-1. Use the button above, or go to **Settings > Devices & services > Add integration** in Home Assistant.
+1. Use the button above, or go to **Settings > Devices & services > Add integration** in Home Assistant. If Home Assistant already found your lights, you'll see **amaran lights** under **Discovered** there; select **Add** on it instead.
 2. Search for **amaran** and choose **Sign in with your amaran account**.
 3. Enter the email or phone number and password you use in the amaran app.
 4. Select the lights you want to add and submit.

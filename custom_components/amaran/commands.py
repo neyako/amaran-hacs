@@ -58,19 +58,6 @@ def hsi_payloads(
     return [payload]
 
 
-def brightness_cct_payloads(
-    *, brightness: int, kelvin: int, power_on: bool = False, gm: int = 0
-) -> list[bytes]:
-    """Compatibility wrapper for callers that set brightness and CCT together."""
-
-    return cct_payloads(
-        brightness=brightness,
-        kelvin=kelvin,
-        power_on=power_on,
-        gm=gm,
-    )
-
-
 def rgb_payloads(
     *, brightness: int, rgb_color: tuple[int, int, int], power_on: bool = False
 ) -> list[bytes]:

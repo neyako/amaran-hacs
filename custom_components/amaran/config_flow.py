@@ -1,7 +1,8 @@
-"""Config flow for Amaran Sidus."""
+"""Config flow for amaran lights."""
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from aiohttp import ClientError
@@ -10,6 +11,8 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
@@ -17,6 +20,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
+from .cloud import CloudAuthError, CloudError, async_fetch_import_payload
 from .const import (
     CONF_ACCOUNT,
     CONF_ADDRESS,
@@ -25,9 +29,7 @@ from .const import (
     CONF_ENABLE_PRESENCE_CHECKING,
     CONF_FIXTURE_CATALOG,
     CONF_IMPORT_JSON,
-    CONF_IMPORT_METHOD,
     CONF_IV_INDEX,
-    CONF_IMPORT_PATH,
     CONF_NAME,
     CONF_NET_KEY,
     CONF_NODE_ADDRESS,
@@ -36,40 +38,35 @@ from .const import (
     CONF_PROXY_CANDIDATES,
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
-    CONF_SEQUENCE,
     CONF_SELECTED_FIXTURE_IDS,
+    CONF_SEQUENCE,
     CONF_SOURCE_ADDRESS,
-    CONF_TTL,
     CONF_TRANSPORT_MODE,
-    DEFAULT_IV_INDEX,
+    CONF_TTL,
     DEFAULT_ENABLE_PRESENCE_CHECKING,
+    DEFAULT_IV_INDEX,
     DEFAULT_NAME,
     DEFAULT_NODE_ADDRESS,
     DEFAULT_SEQUENCE,
     DEFAULT_SOURCE_ADDRESS,
     DEFAULT_TTL,
     DOMAIN,
-    IMPORT_METHOD_JSON,
-    IMPORT_METHOD_PATH,
-    IMPORT_METHODS,
     PROXY_SELECTION_AUTO,
     PROXY_SELECTION_MANUAL,
     TRANSPORT_MODE_PERSISTENT,
 )
-from .cloud import CloudAuthError, CloudError, async_fetch_import_payload
+from .discovery import advertised_network_id, network_id_for_key
 from .fixtures import (
     FixtureImport,
-    default_desktop_db_path,
     fixture_entries_for_selection,
     fixture_selection_choices,
     fixture_unique_id,
-    light_capability_names,
-    load_fixture_import,
     load_fixture_import_json,
     load_fixture_import_payload,
 )
-from .discovery import bluetooth_discovery_enabled
 from .protocol import normalize_hex_key
+
+ADVANCED = "advanced"
 
 
 def _int_from_user(value: Any) -> int:
@@ -103,78 +100,53 @@ def _validate_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
     if ble_mac := data.get(CONF_BLE_MAC):
         data[CONF_BLE_MAC] = str(ble_mac).strip()
 
-    _normalize_proxy_settings(data)
-    data[CONF_NODE_ADDRESS] = _int_from_user(data[CONF_NODE_ADDRESS])
-    data[CONF_SOURCE_ADDRESS] = _int_from_user(
-        data.get(CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS)
-    )
-    data[CONF_IV_INDEX] = _int_from_user(data.get(CONF_IV_INDEX, DEFAULT_IV_INDEX))
-    data[CONF_SEQUENCE] = _int_from_user(data.get(CONF_SEQUENCE, DEFAULT_SEQUENCE))
-    data[CONF_TTL] = _int_from_user(data.get(CONF_TTL, DEFAULT_TTL))
-
-    if not 1 <= data[CONF_NODE_ADDRESS] <= 0x03FF:
+    try:
+        data[CONF_NODE_ADDRESS] = _int_from_user(data[CONF_NODE_ADDRESS])
+    except ValueError as err:
+        raise ValueError(CONF_NODE_ADDRESS) from err
+    _validate_advanced(data)
+    if not 1 <= data[CONF_NODE_ADDRESS] <= 0x7FFF:
         raise ValueError(CONF_NODE_ADDRESS)
-    if not 1 <= data[CONF_SOURCE_ADDRESS] <= 0x03FF:
-        raise ValueError(CONF_SOURCE_ADDRESS)
     if data[CONF_NODE_ADDRESS] == data[CONF_SOURCE_ADDRESS]:
         raise ValueError(CONF_SOURCE_ADDRESS)
-    if not 0 <= data[CONF_IV_INDEX] <= 0xFFFFFFFF:
-        raise ValueError(CONF_IV_INDEX)
-    if not 0 <= data[CONF_SEQUENCE] <= 0xFFFFFF:
-        raise ValueError(CONF_SEQUENCE)
-    if not 0 <= data[CONF_TTL] <= 0x7F:
-        raise ValueError(CONF_TTL)
-    data[CONF_NET_KEY] = normalize_hex_key(
-        str(data[CONF_NET_KEY]), field="network key"
-    ).hex()
-    data[CONF_APP_KEY] = normalize_hex_key(str(data[CONF_APP_KEY]), field="app key").hex()
+    for key, field in ((CONF_NET_KEY, "network key"), (CONF_APP_KEY, "app key")):
+        try:
+            data[key] = normalize_hex_key(str(data[key]), field=field).hex()
+        except ValueError as err:
+            raise ValueError(key) from err
     data[CONF_PROXY_CANDIDATES] = _proxy_candidates_from_fixtures([data])
     return data
 
 
-def _validate_import_path_input(user_input: dict[str, Any]) -> dict[str, Any]:
-    data = dict(user_input)
-    import_path = str(data[CONF_IMPORT_PATH]).strip()
-    imported = load_fixture_import(import_path)
+def _validate_advanced(data: dict[str, Any]) -> None:
+    """Normalize the advanced connection fields in place."""
 
-    data[CONF_IMPORT_PATH] = imported.source_path
-    return _finalize_import_data(data, imported)
-
-
-def _validate_import_json_input(user_input: dict[str, Any]) -> dict[str, Any]:
-    data = dict(user_input)
-    imported = load_fixture_import_json(str(data[CONF_IMPORT_JSON]))
-    return _finalize_import_data(data, imported)
+    _normalize_proxy_settings(data)
+    for key, default, maximum, minimum in (
+        (CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS, 0x7FFF, 1),
+        (CONF_IV_INDEX, DEFAULT_IV_INDEX, 0xFFFFFFFF, 0),
+        (CONF_SEQUENCE, DEFAULT_SEQUENCE, 0xFFFFFF, 0),
+        (CONF_TTL, DEFAULT_TTL, 0x7F, 0),
+    ):
+        try:
+            data[key] = _int_from_user(data.get(key, default))
+        except ValueError as err:
+            raise ValueError(key) from err
+        if not minimum <= data[key] <= maximum:
+            raise ValueError(key)
 
 
 def _finalize_import_data(
     user_input: dict[str, Any], imported: FixtureImport
 ) -> dict[str, Any]:
     data = dict(user_input)
-    data[CONF_SOURCE_ADDRESS] = _int_from_user(
-        data.get(CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS)
-    )
-    data[CONF_IV_INDEX] = _int_from_user(data.get(CONF_IV_INDEX, DEFAULT_IV_INDEX))
-    data[CONF_SEQUENCE] = _int_from_user(data.get(CONF_SEQUENCE, DEFAULT_SEQUENCE))
-    data[CONF_TTL] = _int_from_user(data.get(CONF_TTL, DEFAULT_TTL))
-    _normalize_proxy_settings(data)
-
-    if not 1 <= data[CONF_SOURCE_ADDRESS] <= 0x03FF:
-        raise ValueError(CONF_SOURCE_ADDRESS)
-    if not 0 <= data[CONF_IV_INDEX] <= 0xFFFFFFFF:
-        raise ValueError(CONF_IV_INDEX)
-    if not 0 <= data[CONF_SEQUENCE] <= 0xFFFFFF:
-        raise ValueError(CONF_SEQUENCE)
-    if not 0 <= data[CONF_TTL] <= 0x7F:
-        raise ValueError(CONF_TTL)
+    _validate_advanced(data)
     data[CONF_FIXTURE_CATALOG] = imported.fixtures
     data[CONF_PROXY_CANDIDATES] = _proxy_candidates_from_fixtures(
         imported.fixtures,
         extra=data[CONF_PROXY_MAC],
     )
-    data[CONF_IMPORT_PATH] = imported.source_path
     data.pop(CONF_IMPORT_JSON, None)
-    data.pop(CONF_IMPORT_METHOD, None)
     return data
 
 
@@ -206,11 +178,32 @@ def _normalize_proxy_settings(data: dict[str, Any]) -> None:
     data[CONF_TRANSPORT_MODE] = TRANSPORT_MODE_PERSISTENT
 
 
+def _import_error(err: ValueError) -> str:
+    field = err.args[0] if err.args else ""
+    if field == CONF_IMPORT_JSON:
+        return "invalid_json"
+    if field == "fixtures":
+        return "no_lights"
+    return "invalid_advanced"
+
+
+def _address_conflicts(
+    catalog: list[dict[str, Any]], source_address: int
+) -> dict[str, str]:
+    """Return lights using the address Home Assistant sends from, by ID."""
+
+    return {
+        fixture_unique_id(light): str(light.get(CONF_NAME) or "amaran light")
+        for light in catalog
+        if int(light.get(CONF_NODE_ADDRESS) or 0) == source_address
+    }
+
+
 class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle an Amaran Sidus config flow."""
+    """Handle an amaran config flow."""
 
     VERSION = 2
-    MINOR_VERSION = 2
+    MINOR_VERSION = 4
 
     @staticmethod
     @callback
@@ -219,20 +212,37 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.OptionsFlow:
         """Return the options flow handler."""
 
-        return AmaranSidusOptionsFlow(config_entry)
+        return AmaranSidusOptionsFlow()
 
     def __init__(self) -> None:
-        self._discovery: bluetooth.BluetoothServiceInfoBleak | None = None
         self._pending_import: dict[str, Any] | None = None
+        self._import_source = ""
 
     async def async_step_bluetooth(
         self, discovery_info: bluetooth.BluetoothServiceInfoBleak
     ) -> config_entries.ConfigFlowResult:
-        """Handle Bluetooth discovery."""
+        """Offer setup for lights seen on Bluetooth; never add them directly."""
 
-        if not bluetooth_discovery_enabled(self.hass):
-            return self.async_abort(reason="bluetooth_discovery_disabled")
-        self._discovery = discovery_info
+        network = advertised_network_id(discovery_info.service_data)
+        if network is None:
+            return self.async_abort(reason="not_supported")
+        known_networks = {
+            network_id_for_key(entry.data[CONF_NET_KEY])
+            for entry in self._async_current_entries(include_ignore=False)
+            if entry.data.get(CONF_NET_KEY)
+        }
+        if network in known_networks:
+            # One card per light not yet added from a network the user has.
+            await self.async_set_unique_id(
+                fixture_unique_id({CONF_ADDRESS: discovery_info.address})
+            )
+            name = "New amaran light"
+        else:
+            # One card per unknown network, not one per light.
+            await self.async_set_unique_id(f"network_{network.hex()}")
+            name = "amaran lights"
+        self._abort_if_unique_id_configured()
+        self.context["title_placeholders"] = {"name": name}
         return await self.async_step_user()
 
     async def async_step_user(
@@ -241,7 +251,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Choose how to add lights."""
 
         return self.async_show_menu(
-            step_id="user", menu_options=["cloud", "import", "manual"]
+            step_id="user", menu_options=["cloud", "import_json", "manual"]
         )
 
     async def async_step_cloud(
@@ -258,8 +268,8 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     str(user_input[CONF_PASSWORD]),
                     self.hass.config.country,
                 )
-                imported = load_fixture_import_payload(
-                    payload, source="your amaran account"
+                imported = await self.hass.async_add_executor_job(
+                    partial(load_fixture_import_payload, payload, source="account")
                 )
             except CloudAuthError:
                 errors["base"] = "invalid_auth"
@@ -269,6 +279,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_lights"
             else:
                 self._pending_import = _finalize_import_data({}, imported)
+                self._import_source = "your amaran account"
                 return await self.async_step_select_fixture()
 
         return self.async_show_form(
@@ -289,6 +300,66 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_import_json(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a pasted amaran Desktop export."""
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {
+                CONF_IMPORT_JSON: user_input[CONF_IMPORT_JSON],
+                **user_input.get(ADVANCED, {}),
+            }
+            try:
+                imported = await self.hass.async_add_executor_job(
+                    load_fixture_import_json, str(data[CONF_IMPORT_JSON])
+                )
+                self._pending_import = _finalize_import_data(data, imported)
+            except ValueError as err:
+                errors["base"] = _import_error(err)
+            else:
+                self._import_source = "your export"
+                return await self.async_step_select_fixture()
+
+        return self.async_show_form(
+            step_id="import_json",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_IMPORT_JSON): TextSelector(
+                        TextSelectorConfig(multiline=True)
+                    ),
+                    vol.Required(ADVANCED): section(
+                        vol.Schema(
+                            {
+                                vol.Required(
+                                    CONF_SOURCE_ADDRESS,
+                                    default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}",
+                                ): str,
+                                vol.Optional(CONF_PROXY_MAC, default=""): str,
+                                vol.Required(
+                                    CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)
+                                ): str,
+                                vol.Required(
+                                    CONF_SEQUENCE, default=str(DEFAULT_SEQUENCE)
+                                ): str,
+                                vol.Required(CONF_TTL, default=str(DEFAULT_TTL)): str,
+                            }
+                        ),
+                        {"collapsed": True},
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_import(
+        self, import_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Create an extra light selected in the same setup."""
+
+        return await self._async_create_fixture_entry(dict(import_data))
+
     async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -307,231 +378,116 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="manual",
-            data_schema=self._manual_schema(),
-            errors=errors,
-        )
-
-    async def async_step_import(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Choose import method."""
-
-        if user_input is not None:
-            if CONF_ADDRESS in user_input:
-                return await self._async_create_fixture_entry(dict(user_input))
-            method = user_input.get(CONF_IMPORT_METHOD)
-            if method == IMPORT_METHOD_JSON:
-                return await self.async_step_import_json()
-            if method == IMPORT_METHOD_PATH:
-                return await self.async_step_import_path()
-
-        return self.async_show_form(
-            step_id="import",
             data_schema=vol.Schema(
                 {
+                    vol.Required(CONF_NAME, default=DEFAULT_NAME): str,
+                    vol.Required(CONF_ADDRESS): str,
+                    vol.Optional(CONF_BLE_MAC, default=""): str,
+                    vol.Optional(CONF_PROXY_MAC, default=""): str,
                     vol.Required(
-                        CONF_IMPORT_METHOD,
-                        default=IMPORT_METHOD_JSON,
-                    ): vol.In(IMPORT_METHODS)
+                        CONF_NODE_ADDRESS, default=str(DEFAULT_NODE_ADDRESS)
+                    ): str,
+                    vol.Required(
+                        CONF_SOURCE_ADDRESS, default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}"
+                    ): str,
+                    vol.Required(CONF_NET_KEY): str,
+                    vol.Required(CONF_APP_KEY): str,
+                    vol.Required(CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)): str,
+                    vol.Required(CONF_SEQUENCE, default=str(DEFAULT_SEQUENCE)): str,
+                    vol.Required(CONF_TTL, default=str(DEFAULT_TTL)): str,
                 }
             ),
-            errors={},
-        )
-
-    async def async_step_import_json(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Handle pasted JSON import."""
-
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            try:
-                data = _validate_import_json_input(user_input)
-            except ValueError as err:
-                errors["base"] = "invalid_input"
-                if err.args:
-                    errors[str(err.args[0])] = "invalid_input"
-            else:
-                self._pending_import = data
-                return await self.async_step_select_fixture()
-
-        return self.async_show_form(
-            step_id="import_json",
-            data_schema=self._import_json_schema(),
-            errors=errors,
-        )
-
-    async def async_step_import_path(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Handle local amaran.db or JSON path import."""
-
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            try:
-                data = _validate_import_path_input(user_input)
-            except ValueError as err:
-                errors["base"] = "invalid_input"
-                if err.args:
-                    errors[str(err.args[0])] = "invalid_input"
-            else:
-                self._pending_import = data
-                return await self.async_step_select_fixture()
-
-        return self.async_show_form(
-            step_id="import_path",
-            data_schema=self._import_path_schema(),
             errors=errors,
         )
 
     async def async_step_select_fixture(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Select one or more lights from an imported mesh catalog."""
+        """Select one or more lights from an imported catalog."""
 
         data = self._pending_import
         if data is None:
-            return await self.async_step_import()
+            return await self.async_step_user()
 
         catalog = list(data[CONF_FIXTURE_CATALOG])
-        configured = frozenset(self._async_current_ids())
+        conflicts = _address_conflicts(catalog, data[CONF_SOURCE_ADDRESS])
+        skip_ids = frozenset(self._async_current_ids()) | conflicts.keys()
         choices = {
             fixture_id: label
             for fixture_id, label in fixture_selection_choices(catalog).items()
-            if fixture_id not in configured
+            if fixture_id not in skip_ids
         }
         if not choices:
             return self.async_abort(reason="already_configured")
 
         placeholders = {
             "light_count": str(len(choices)),
-            "source": str(data.get(CONF_IMPORT_PATH) or "pasted JSON"),
-            "detected_lights": _detected_light_summary(catalog),
+            "source": self._import_source,
+            "notes": (
+                f"\n\nCan't add {', '.join(conflicts.values())}: it uses address "
+                f"{data[CONF_SOURCE_ADDRESS]}, which Home Assistant sends from."
+                if conflicts
+                else ""
+            ),
         }
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SELECTED_FIXTURE_IDS, default=list(choices)
+                ): cv.multi_select(choices)
+            }
+        )
 
         if user_input is not None:
             selected_ids = list(user_input.get(CONF_SELECTED_FIXTURE_IDS) or [])
             entries = fixture_entries_for_selection(
-                data, catalog, selected_ids, skip_ids=configured
+                data, catalog, selected_ids, skip_ids=skip_ids
             )
-            if not entries:
-                return self.async_show_form(
-                    step_id="select_fixture",
-                    data_schema=self._fixture_selection_schema(choices),
-                    errors={CONF_SELECTED_FIXTURE_IDS: "invalid_input"},
-                    description_placeholders=placeholders,
-                )
-            for extra in entries[1:]:
-                await self.hass.config_entries.flow.async_init(
-                    DOMAIN,
-                    context={"source": config_entries.SOURCE_IMPORT},
-                    data=extra,
-                )
-            return await self._async_create_fixture_entry(entries[0])
+            if entries:
+                for extra in entries[1:]:
+                    await self.hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": config_entries.SOURCE_IMPORT},
+                        data=extra,
+                    )
+                return await self._async_create_fixture_entry(entries[0])
+            return self.async_show_form(
+                step_id="select_fixture",
+                data_schema=schema,
+                errors={"base": "no_selection"},
+                description_placeholders=placeholders,
+            )
 
         return self.async_show_form(
             step_id="select_fixture",
-            data_schema=self._fixture_selection_schema(choices),
-            errors={},
+            data_schema=schema,
             description_placeholders=placeholders,
         )
 
     async def _async_create_fixture_entry(
         self, data: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
-        """Create one fixture-specific config entry."""
+        """Create one light config entry."""
 
         await self.async_set_unique_id(fixture_unique_id(data))
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title=str(data[CONF_NAME]), data=data)
 
-    @callback
-    def _fixture_selection_schema(self, choices: dict[str, str]) -> vol.Schema:
-        from homeassistant.helpers import config_validation as cv
-
-        return vol.Schema(
-            {
-                vol.Required(
-                    CONF_SELECTED_FIXTURE_IDS,
-                    default=list(choices),
-                ): cv.multi_select(choices)
-            }
-        )
-
-    @callback
-    def _manual_schema(self) -> vol.Schema:
-        address = self._discovery.address if self._discovery else ""
-        name = self._discovery.name if self._discovery else DEFAULT_NAME
-        return vol.Schema(
-            {
-                vol.Required(CONF_NAME, default=name or DEFAULT_NAME): str,
-                vol.Required(CONF_ADDRESS, default=address): str,
-                vol.Optional(CONF_BLE_MAC, default=""): str,
-                vol.Optional(CONF_PROXY_MAC, default=""): str,
-                vol.Required(
-                    CONF_NODE_ADDRESS, default=str(DEFAULT_NODE_ADDRESS)
-                ): str,
-                vol.Required(
-                    CONF_SOURCE_ADDRESS, default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}"
-                ): str,
-                vol.Required(CONF_NET_KEY): str,
-                vol.Required(CONF_APP_KEY): str,
-                vol.Required(CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)): str,
-                vol.Required(CONF_SEQUENCE, default=str(DEFAULT_SEQUENCE)): str,
-                vol.Required(CONF_TTL, default=str(DEFAULT_TTL)): str,
-            }
-        )
-
-    @callback
-    def _import_json_schema(self) -> vol.Schema:
-        return vol.Schema(
-            {
-                vol.Required(CONF_IMPORT_JSON): str,
-                vol.Required(
-                    CONF_SOURCE_ADDRESS, default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}"
-                ): str,
-                vol.Optional(CONF_PROXY_MAC, default=""): str,
-                vol.Required(CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)): str,
-                vol.Required(CONF_SEQUENCE, default=str(DEFAULT_SEQUENCE)): str,
-                vol.Required(CONF_TTL, default=str(DEFAULT_TTL)): str,
-            }
-        )
-
-    @callback
-    def _import_path_schema(self) -> vol.Schema:
-        return vol.Schema(
-            {
-                vol.Required(
-                    CONF_IMPORT_PATH,
-                    default=default_desktop_db_path(),
-                ): str,
-                vol.Required(
-                    CONF_SOURCE_ADDRESS, default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}"
-                ): str,
-                vol.Optional(CONF_PROXY_MAC, default=""): str,
-                vol.Required(CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)): str,
-                vol.Required(CONF_SEQUENCE, default=str(DEFAULT_SEQUENCE)): str,
-                vol.Required(CONF_TTL, default=str(DEFAULT_TTL)): str,
-            }
-        )
-
 
 class AmaranSidusOptionsFlow(config_entries.OptionsFlow):
-    """Handle Amaran Sidus options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._config_entry = config_entry
+    """Handle amaran options."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Manage fixture proxy settings."""
+        """Manage the preferred connection light and presence checking."""
 
+        entry = self.config_entry
         if user_input is not None:
             proxy_mac = str(user_input.get(CONF_PROXY_MAC) or "").strip()
-            options = dict(self._config_entry.options)
-            options.update(
-                {
+            return self.async_create_entry(
+                data={
+                    **entry.options,
                     CONF_TRANSPORT_MODE: TRANSPORT_MODE_PERSISTENT,
                     CONF_PROXY_MAC: proxy_mac,
                     CONF_PROXY_SELECTION: (
@@ -539,62 +495,37 @@ class AmaranSidusOptionsFlow(config_entries.OptionsFlow):
                     ),
                     CONF_PROXY_ADDRESS: proxy_mac,
                     CONF_ENABLE_PRESENCE_CHECKING: _bool_from_user(
-                        user_input.get(
-                            CONF_ENABLE_PRESENCE_CHECKING,
-                            DEFAULT_ENABLE_PRESENCE_CHECKING,
-                        ),
+                        user_input.get(CONF_ENABLE_PRESENCE_CHECKING),
                         default=DEFAULT_ENABLE_PRESENCE_CHECKING,
                     ),
                 }
             )
-            return self.async_create_entry(
-                title="",
-                data=options,
-            )
 
+        current_proxy_mac = entry.options.get(
+            CONF_PROXY_MAC,
+            entry.options.get(
+                CONF_PROXY_ADDRESS,
+                entry.data.get(CONF_PROXY_MAC, entry.data.get(CONF_PROXY_ADDRESS, "")),
+            ),
+        )
+        current_presence_checking = entry.options.get(
+            CONF_ENABLE_PRESENCE_CHECKING,
+            entry.data.get(
+                CONF_ENABLE_PRESENCE_CHECKING, DEFAULT_ENABLE_PRESENCE_CHECKING
+            ),
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=self._options_schema(),
-            errors={},
-        )
-
-    def _options_schema(self) -> vol.Schema:
-        current_proxy_mac = self._config_entry.options.get(
-            CONF_PROXY_MAC,
-            self._config_entry.options.get(
-                CONF_PROXY_ADDRESS,
-                self._config_entry.data.get(
-                    CONF_PROXY_MAC,
-                    self._config_entry.data.get(CONF_PROXY_ADDRESS, ""),
-                ),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_PROXY_MAC, default=current_proxy_mac): str,
+                    vol.Optional(
+                        CONF_ENABLE_PRESENCE_CHECKING,
+                        default=_bool_from_user(
+                            current_presence_checking,
+                            default=DEFAULT_ENABLE_PRESENCE_CHECKING,
+                        ),
+                    ): bool,
+                }
             ),
         )
-        current_presence_checking = self._config_entry.options.get(
-            CONF_ENABLE_PRESENCE_CHECKING,
-            self._config_entry.data.get(
-                CONF_ENABLE_PRESENCE_CHECKING,
-                DEFAULT_ENABLE_PRESENCE_CHECKING,
-            ),
-        )
-        return vol.Schema(
-            {
-                vol.Optional(CONF_PROXY_MAC, default=current_proxy_mac): str,
-                vol.Optional(
-                    CONF_ENABLE_PRESENCE_CHECKING,
-                    default=_bool_from_user(
-                        current_presence_checking,
-                        default=DEFAULT_ENABLE_PRESENCE_CHECKING,
-                    ),
-                ): bool,
-            }
-        )
-
-
-def _detected_light_summary(catalog: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for light in catalog:
-        name = str(light.get(CONF_NAME) or "Amaran light")
-        model = str(light.get("model") or "Unknown")
-        capabilities = ", ".join(light_capability_names(light))
-        lines.append(f"{name} ({model}): {capabilities}")
-    return "\n".join(lines)

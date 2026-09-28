@@ -6,8 +6,10 @@ import sys
 from types import SimpleNamespace
 import types
 import unittest
+from unittest import mock
 
 from custom_components.amaran import _active_fixtures, async_migrate_entry
+from custom_components.amaran.state_store import _state_store_key
 from custom_components.amaran.const import (
     CONF_APP_KEY,
     CONF_BATTERY_CAPABLE,
@@ -24,7 +26,6 @@ from custom_components.amaran.const import (
     CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
 )
-from custom_components.amaran.discovery import bluetooth_discovery_enabled
 from custom_components.amaran.fixtures import (
     fixture_device_identifier,
     fixture_entries_for_selection,
@@ -47,7 +48,7 @@ class FixtureSelectionTest(unittest.TestCase):
 
         self.assertEqual(
             choices[fixture_unique_id(ace)],
-            "Ace (Ace 25c) - Brightness, Color temperature, Color/HSI, RGB, Battery",
+            "Ace (Ace 25c) - Brightness, White temperature, Color, Battery",
         )
         self.assertIs(
             fixture_for_unique_id([ace, pano], fixture_unique_id(pano)),
@@ -194,26 +195,42 @@ class FixtureSelectionTest(unittest.TestCase):
         )
 
 
-class DiscoveryConfigTest(unittest.TestCase):
-    def test_bluetooth_discovery_disabled_by_default(self) -> None:
-        hass = SimpleNamespace(
-            data={},
-            config_entries=SimpleNamespace(async_entries=lambda domain: []),
-        )
-
-        self.assertFalse(bluetooth_discovery_enabled(hass))
-
-    def test_bluetooth_discovery_stays_disabled_when_option_is_present(self) -> None:
-        entry = SimpleNamespace(data={}, options={"enable_discovery": True})
-        hass = SimpleNamespace(
-            data={},
-            config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
-        )
-
-        self.assertFalse(bluetooth_discovery_enabled(hass))
-
-
 class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.registry = FakeEntityRegistry()
+        self.stores: dict[str, dict] = {}
+        registry_module = types.ModuleType("homeassistant.helpers.entity_registry")
+        registry_module.async_get = lambda hass: self.registry
+        registry_module.async_entries_for_config_entry = (
+            lambda registry, entry_id: [
+                entity for entity in registry.entities if entity.config_entry_id == entry_id
+            ]
+        )
+        stores = self.stores
+
+        class FakeStore:
+            def __init__(self, hass, version, key) -> None:
+                self.key = key
+
+            async def async_load(self):
+                return stores.get(self.key)
+
+            async def async_save(self, data) -> None:
+                stores[self.key] = data
+
+            async def async_remove(self) -> None:
+                stores.pop(self.key, None)
+
+        patches = [
+            mock.patch.dict(
+                sys.modules, {"homeassistant.helpers.entity_registry": registry_module}
+            ),
+            mock.patch("custom_components.amaran.state_store.Store", FakeStore),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
     async def test_single_ace_entry_backfills_battery_capability(self) -> None:
         entry = SimpleNamespace(
             entry_id="ace",
@@ -231,13 +248,50 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=1,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
 
         migrated = await async_migrate_entry(hass, entry)
 
         self.assertTrue(migrated)
         self.assertTrue(entry.data[CONF_BATTERY_CAPABLE])
-        self.assertEqual(entry.minor_version, 3)
+        self.assertEqual(entry.minor_version, 4)
+
+    async def test_moves_only_the_old_default_source_address(self) -> None:
+        light = {CONF_BLE_MAC: "AA:BB:CC:DD:EE:01", CONF_NODE_ADDRESS: 0x000B}
+        entries = [
+            SimpleNamespace(
+                entry_id=f"light-{source}",
+                data={**light, CONF_SOURCE_ADDRESS: source},
+                options={},
+                version=2,
+                minor_version=3,
+            )
+            for source in (0x000F, 0x0020)
+        ]
+        self.registry.add("light-15", "AA:BB:CC:DD:EE:01_node_11_src_15")
+        self.registry.add("light-15", "AA:BB:CC:DD:EE:01_node_11_src_15_battery")
+        old_client = SimpleNamespace(data=light, node_address=0x000B, source_address=15)
+        new_client = SimpleNamespace(data=light, node_address=0x000B, source_address=0x7FFF)
+        self.stores[_state_store_key(old_client)] = {"power": True}
+        hass = SimpleNamespace(config_entries=FakeConfigEntries(entries))
+
+        for entry in entries:
+            self.assertTrue(await async_migrate_entry(hass, entry))
+
+        self.assertEqual(
+            [(entry.data[CONF_SOURCE_ADDRESS], entry.minor_version) for entry in entries],
+            [(0x7FFF, 4), (0x0020, 4)],
+        )
+        self.assertEqual(
+            [entity.unique_id for entity in self.registry.entities],
+            [
+                "AA:BB:CC:DD:EE:01_node_11_src_32767",
+                "AA:BB:CC:DD:EE:01_node_11_src_32767_battery",
+            ],
+        )
+        self.assertEqual(self.stores, {_state_store_key(new_client): {"power": True}})
 
     async def test_existing_entry_recomputes_stale_color_modes(self) -> None:
         entry = SimpleNamespace(
@@ -258,13 +312,15 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=2,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
 
         migrated = await async_migrate_entry(hass, entry)
 
         self.assertTrue(migrated)
         self.assertEqual(entry.data[CONF_SUPPORTED_COLOR_MODES], ["color_temp"])
-        self.assertEqual(entry.minor_version, 3)
+        self.assertEqual(entry.minor_version, 4)
 
     async def test_grouped_entry_splits_into_fixture_entries(self) -> None:
         ace = _fixture("Ace", "Ace 25c", "AA:BB:CC:DD:EE:01", 0x000B)
@@ -288,7 +344,9 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
             minor_version=3,
         )
         manager = FakeConfigEntries([entry])
-        hass = SimpleNamespace(config_entries=manager)
+        hass = SimpleNamespace(
+            config_entries=manager, async_add_executor_job=_run_in_executor
+        )
         _install_config_entry_stub()
 
         migrated = await async_migrate_entry(hass, entry)
@@ -297,7 +355,7 @@ class GroupedEntryMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.title, "Ace")
         self.assertEqual(entry.unique_id, fixture_unique_id(ace))
         self.assertEqual(entry.version, 2)
-        self.assertEqual(entry.minor_version, 3)
+        self.assertEqual(entry.minor_version, 4)
         self.assertEqual(entry.data[CONF_PROXY_ADDRESS], "")
         self.assertNotIn(CONF_FIXTURE_CATALOG, entry.data)
         self.assertNotIn(CONF_FIXTURES, entry.data)
@@ -330,6 +388,25 @@ class FakeConfigEntries:
             setattr(entry, key, value)
 
 
+class FakeEntityRegistry:
+    def __init__(self) -> None:
+        self.entities: list[SimpleNamespace] = []
+
+    def add(self, entry_id: str, unique_id: str) -> None:
+        self.entities.append(
+            SimpleNamespace(
+                entity_id=f"light.{len(self.entities)}",
+                unique_id=unique_id,
+                config_entry_id=entry_id,
+            )
+        )
+
+    def async_update_entity(self, entity_id: str, *, new_unique_id: str) -> None:
+        for entity in self.entities:
+            if entity.entity_id == entity_id:
+                entity.unique_id = new_unique_id
+
+
 def _install_config_entry_stub() -> None:
     homeassistant = sys.modules.setdefault(
         "homeassistant", types.ModuleType("homeassistant")
@@ -353,6 +430,10 @@ def _fixture(name: str, model: str, mac: str, node_address: int) -> dict:
         CONF_BATTERY_CAPABLE: "25c" in model.lower(),
     }
 
+
+
+async def _run_in_executor(func, *args):
+    return func(*args)
 
 if __name__ == "__main__":
     unittest.main()

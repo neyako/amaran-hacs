@@ -11,7 +11,6 @@ from unittest import mock
 from custom_components.amaran.const import (
     PROXY_SELECTION_AUTO,
     TRANSPORT_MODE_PERSISTENT,
-    TRANSPORT_MODE_TRANSIENT,
     TRANSPORT_STATE_DISCONNECTED,
     TRANSPORT_STATE_FAILED,
     TRANSPORT_STATE_PROXY_READY,
@@ -20,9 +19,7 @@ from custom_components.amaran.protocol import brightness_payload_percent, power_
 from custom_components.amaran.protocol import build_mesh_proxy_pdu, power_status_request_payload
 import custom_components.amaran.transport as transport_module
 from custom_components.amaran.transport import (
-    SidusBaseTransport,
     SidusPersistentTransport,
-    SidusTransientTransport,
     SidusTransportSettings,
 )
 
@@ -32,9 +29,25 @@ APP_KEY = bytes.fromhex("ffeeddccbbaa99887766554433221100")
 
 
 class FakeSequenceManager:
+    """Keeps the real manager's IV rules without Home Assistant storage."""
+
     def __init__(self, sequence: int = 100000) -> None:
         self.lock = asyncio.Lock()
         self.sequence = sequence
+        self.iv_index = 0
+        self.network_iv_index = 0
+        self._iv_update = False
+
+    def note_beacon(self, iv_index: int, *, iv_update: bool) -> None:
+        self.network_iv_index = iv_index
+        self._iv_update = iv_update
+
+    def switch_iv_if_needed(self) -> bool:
+        target = self.network_iv_index - (1 if self._iv_update else 0)
+        if target <= self.iv_index:
+            return False
+        self.iv_index, self.sequence = target, 0
+        return True
 
 
 class FakeBleDevice:
@@ -123,7 +136,6 @@ class FakePersistentTransport(SidusPersistentTransport):
             settings=_settings(hass=hass, disconnect_callback=disconnect_callback),
             sequence_manager=sequence_manager,
             save_sequence=self._save_sequence,
-            mode=TRANSPORT_MODE_PERSISTENT,
         )
 
     async def _save_sequence(self) -> None:
@@ -157,64 +169,14 @@ class FailingWarmupTransport(FakePersistentTransport):
         raise RuntimeError("unavailable")
 
 
-class FakeTransientTransport(SidusTransientTransport):
-    def __init__(self, *, sequence_manager: FakeSequenceManager) -> None:
-        self.save_count = 0
-        self.lookup_count = 0
-        self.connect_count = 0
-        self.discover_count = 0
-        self.clients: list[FakeBleClient] = []
-        super().__init__(
-            settings=_settings(),
-            sequence_manager=sequence_manager,
-            save_sequence=self._save_sequence,
-            mode=TRANSPORT_MODE_TRANSIENT,
-        )
-
-    async def _save_sequence(self) -> None:
-        self.save_count += 1
-
-    async def _lookup_ble_device(self, *, connection_reused: bool) -> FakeBleDevice:
-        self.lookup_count += 1
-        self._last_bluetooth_device = {
-            "address": FakeBleDevice.address,
-            "name": FakeBleDevice.name,
-            "details": FakeBleDevice.details,
-            "source": FakeBleDevice.source,
-            "connection_reused": connection_reused,
-        }
-        return FakeBleDevice()
-
+class HangingConnectTransport(FakePersistentTransport):
     async def _connect_client(self, ble_device: FakeBleDevice) -> FakeBleClient:
         self.connect_count += 1
-        client = FakeBleClient()
-        self.clients.append(client)
-        return client
-
-    async def _discover_proxy_in(self, client: FakeBleClient) -> object:
-        self.discover_count += 1
-        return client.services.characteristic
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
 
 
 class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
-    async def test_worker_loop_uses_background_task_when_available(self) -> None:
-        sequence_manager = FakeSequenceManager()
-        hass = FakeTaskHass()
-        transport = FakePersistentTransport(
-            sequence_manager=sequence_manager,
-            hass=hass,
-        )
-
-        await transport.async_setup()
-
-        self.assertEqual(
-            hass.background_task_names,
-            ["amaran_AA:BB:CC:DD:EE:FF_ble_worker"],
-        )
-        self.assertEqual(hass.setup_task_names, [])
-
-        await transport.async_close()
-
     async def test_persistent_warmup_connects_without_sequence_or_write(self) -> None:
         sequence_manager = FakeSequenceManager()
         transport = FakePersistentTransport(sequence_manager=sequence_manager)
@@ -305,6 +267,23 @@ class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
 
         await transport.async_close()
 
+    async def test_new_network_iv_index_renews_filter_before_next_command(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        transport = FakePersistentTransport(sequence_manager=sequence_manager)
+        await transport.async_setup()
+        await transport.async_send_siduses([power_payload(True)])
+        # As the notification handler does for an authenticated beacon.
+        sequence_manager.note_beacon(1, iv_update=False)
+
+        await transport.async_send_siduses([power_payload(False)])
+
+        writes = [pdu for _target, pdu, _response in transport.clients[0].writes]
+        self.assertEqual([pdu[0] for pdu in writes], [0x00, 0x02, 0x00])
+        self.assertEqual(writes[2][1] >> 7, 1)  # IVI bit of IV index 1
+        self.assertEqual(sequence_manager.sequence, 2)  # filter 0, command 1
+
+        await transport.async_close()
+
     async def test_persistent_serializes_concurrent_writes(self) -> None:
         sequence_manager = FakeSequenceManager()
         transport = FakePersistentTransport(sequence_manager=sequence_manager)
@@ -337,6 +316,28 @@ class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(transport.clients[1].writes), 1)
 
         await transport.async_close()
+
+
+class CloseTest(unittest.IsolatedAsyncioTestCase):
+    async def test_close_aborts_pending_connects_and_stays_closed(self) -> None:
+        transport = HangingConnectTransport(sequence_manager=FakeSequenceManager())
+        await transport.async_setup()
+        in_flight = asyncio.ensure_future(transport.async_warmup())
+        queued = asyncio.ensure_future(transport.async_warmup())
+        await _wait_for(lambda: transport.connect_count == 1)
+
+        await asyncio.wait_for(transport.async_close(), timeout=1.0)
+
+        for request in (in_flight, queued):
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                await request
+        self.assertEqual(transport.connect_count, 1)
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            await transport.async_send_siduses([power_payload(True)])
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            await transport.async_warmup()
+        await transport.async_setup()
+        self.assertIsNone(transport._worker_task)
 
 
 class WatchdogReconnectTest(unittest.IsolatedAsyncioTestCase):
@@ -439,35 +440,18 @@ class DisconnectCallbackTest(unittest.IsolatedAsyncioTestCase):
         await transport.async_close()
 
 
-class TransientTransportTest(unittest.IsolatedAsyncioTestCase):
-    async def test_transient_keeps_one_shot_lifecycle(self) -> None:
-        sequence_manager = FakeSequenceManager()
-        transport = FakeTransientTransport(sequence_manager=sequence_manager)
-
-        await transport.async_send_siduses([power_payload(True)])
-        await transport.async_send_siduses([brightness_payload_percent(80)])
-
-        self.assertEqual(transport.connect_count, 2)
-        self.assertEqual(transport.discover_count, 2)
-        self.assertEqual([client.disconnect_count for client in transport.clients], [1, 1])
-        self.assertEqual(sequence_manager.sequence, 100002)
-        self.assertEqual(transport.metrics["mode"], TRANSPORT_MODE_TRANSIENT)
-
-
 class SequenceReservationTest(unittest.TestCase):
     def test_shared_source_sequence_across_fixtures_never_goes_backwards(self) -> None:
         sequence_manager = FakeSequenceManager(sequence=42)
-        first_fixture = SidusBaseTransport(
+        first_fixture = SidusPersistentTransport(
             settings=_settings(node_address=0x0002, source_address=0x000F),
             sequence_manager=sequence_manager,
             save_sequence=_noop_save,
-            mode=TRANSPORT_MODE_TRANSIENT,
         )
-        second_fixture = SidusBaseTransport(
+        second_fixture = SidusPersistentTransport(
             settings=_settings(node_address=0x0004, source_address=0x000F),
             sequence_manager=sequence_manager,
             save_sequence=_noop_save,
-            mode=TRANSPORT_MODE_TRANSIENT,
         )
 
         first_sequences = list(first_fixture._reserve_sequences(2))
@@ -481,7 +465,7 @@ class SequenceReservationTest(unittest.TestCase):
 class NotificationCaptureTest(unittest.TestCase):
     def test_decrypted_access_callback_receives_raw_sidus_payload(self) -> None:
         messages: list[dict] = []
-        transport = SidusBaseTransport(
+        transport = SidusPersistentTransport(
             settings=_settings(
                 node_address=0x000B,
                 source_address=0x000F,
@@ -489,7 +473,6 @@ class NotificationCaptureTest(unittest.TestCase):
             ),
             sequence_manager=FakeSequenceManager(),
             save_sequence=_noop_save,
-            mode=TRANSPORT_MODE_TRANSIENT,
         )
         proxy_pdu = build_mesh_proxy_pdu(
             net_key=NET_KEY,
@@ -529,14 +512,13 @@ class RxLoggingGuardTest(unittest.TestCase):
 
 class AutoProxySelectionTest(unittest.TestCase):
     def test_auto_proxy_selection_chooses_strongest_reachable_candidate(self) -> None:
-        transport = SidusBaseTransport(
+        transport = SidusPersistentTransport(
             settings=_settings(
                 proxy_selection=PROXY_SELECTION_AUTO,
                 proxy_candidates=("AA:BB:CC:00:00:01", "AA:BB:CC:00:00:02"),
             ),
             sequence_manager=FakeSequenceManager(),
             save_sequence=_noop_save,
-            mode=TRANSPORT_MODE_TRANSIENT,
         )
 
         ble_device, service_info = transport._select_auto_proxy_device(
@@ -547,14 +529,13 @@ class AutoProxySelectionTest(unittest.TestCase):
         self.assertEqual(service_info.rssi, -42)
 
     def test_unavailable_manual_proxy_falls_back_to_strongest_reachable(self) -> None:
-        transport = SidusBaseTransport(
+        transport = SidusPersistentTransport(
             settings=_settings(
                 proxy_selection="manual",
                 proxy_candidates=("AA:BB:CC:00:00:01", "AA:BB:CC:00:00:02"),
             ),
             sequence_manager=FakeSequenceManager(),
             save_sequence=_noop_save,
-            mode=TRANSPORT_MODE_PERSISTENT,
         )
 
         ble_device, service_info = transport._select_proxy_device(
@@ -563,6 +544,14 @@ class AutoProxySelectionTest(unittest.TestCase):
 
         self.assertEqual(ble_device.address, "AA:BB:CC:00:00:02")
         self.assertEqual(service_info.rssi, -42)
+
+
+async def _wait_for(predicate: Any) -> None:
+    for _ in range(20):
+        if predicate():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition not reached")
 
 
 async def _noop_save() -> None:
@@ -580,14 +569,13 @@ def _settings(
     disconnect_callback: object | None = None,
 ) -> SidusTransportSettings:
     return SidusTransportSettings(
-        hass=object() if hass is None else hass,
+        hass=FakeTaskHass() if hass is None else hass,
         address="AA:BB:CC:DD:EE:FF",
         name="Fake Sidus",
         net_key=NET_KEY,
         app_key=APP_KEY,
         node_address=node_address,
         source_address=source_address,
-        iv_index=0,
         ttl=7,
         proxy_selection=proxy_selection,
         proxy_address="AA:BB:CC:DD:EE:FF",
@@ -598,19 +586,7 @@ def _settings(
 
 
 class FakeTaskHass:
-    def __init__(self) -> None:
-        self.background_task_names: list[str] = []
-        self.setup_task_names: list[str] = []
-
     def async_create_background_task(
         self, coroutine: Any, name: str, **_kwargs: Any
     ) -> asyncio.Task:
-        self.background_task_names.append(name)
-        return asyncio.create_task(coroutine, name=name)
-
-    def async_create_task(
-        self, coroutine: Any, name: str | None = None, **_kwargs: Any
-    ) -> asyncio.Task:
-        if name is not None:
-            self.setup_task_names.append(name)
         return asyncio.create_task(coroutine, name=name)

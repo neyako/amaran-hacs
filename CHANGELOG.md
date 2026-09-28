@@ -5,6 +5,37 @@
 - Add "Sign in with your amaran account" setup. Home Assistant signs in once,
   reads the lights and keys the amaran app syncs to the account, and stores
   neither the password nor the session token. Desktop export stays available.
+- Simplify the paste setup: a multi-line export box, advanced settings folded
+  away, and specific errors instead of one catch-all message. Remove the
+  local database file option; paste the export instead.
+- List lights that use Home Assistant's own address as "can't add" instead of
+  adding a light that never responds.
+- Replace setup and service jargon with plain language, and label capabilities
+  as Brightness, White temperature, Color, and Battery.
+- Export script: read the amaran phone app database, keep each light's own
+  network keys, trim model names, stop writing ignored fields, and no longer
+  crash when run from `/`.
+- Run the 2.3 entry migration (color modes, battery) for entries that skipped it.
+- Keep every light in a network on one connection even when one light sets a
+  preferred connection light, and use lights added while Home Assistant runs.
+- Respect the reconnect delay when a light keeps advertising but refuses
+  connections, and stop reconnecting once the integration unloads.
+- Mark lights unavailable as soon as the connection drops, including the
+  external power sensor.
+- Remove the unused short-lived connection mode and other dead code.
+- Bring back Bluetooth discovery as a prompt only: Home Assistant shows one
+  "amaran lights" card per network it sees, and a "New amaran light" card for
+  lights not yet added from a network you already set up. Both open the normal
+  sign-in or paste setup; nothing is added without you.
+- Removing a light lets Bluetooth discovery offer it again right away.
+- Follow the network's IV index from authenticated beacons, so status and
+  battery reports keep working after the amaran app updates it, and message
+  numbers start over when it changes.
+- Poll all lights with one broadcast instead of one request per light, using
+  far fewer message numbers and Bluetooth writes.
+- Send from address 0x7FFF instead of 15, which the amaran app can give to a
+  new light. Existing entries on 15 move automatically and keep their entity
+  IDs and saved state.
 
 ## v0.5.0
 

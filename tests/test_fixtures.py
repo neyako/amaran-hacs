@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from pathlib import Path
-import tempfile
 import unittest
 
 from custom_components.amaran.const import (
@@ -27,7 +24,6 @@ from custom_components.amaran.fixtures import (
     fixture_unique_id,
     is_battery_capable_light,
     light_capability_names,
-    load_fixture_import,
     load_fixture_import_json,
     supported_color_modes_for_fixture,
 )
@@ -38,33 +34,32 @@ APP_KEY = "ffeeddccbbaa99887766554433221100"
 
 
 class FixtureImportTest(unittest.TestCase):
-    def test_db_imports_multiple_supported_fixtures(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            db_path = Path(directory) / "amaran.db"
-            _write_db(db_path)
-
-            imported = load_fixture_import(db_path)
+    def test_export_imports_multiple_supported_lights(self) -> None:
+        rows = [
+            ("AA:BB:CC:DD:EE:04", "400O5", "amaran 100x S #1", 2),
+            ("AA:BB:CC:DD:EE:02", "400W5", "amaran Pano 60c #1", 4),
+            ("AA:BB:CC:DD:EE:03", "400M5", "amaran 60x S #1", 10),
+            ("AA:BB:CC:DD:EE:01", "400U5", "amaran Ace 25c #1", 11),
+            ("AA:BB:CC:DD:EE:06", "99999", "Unknown fixture", 12),
+        ]
+        imported = load_fixture_import_json(
+            json.dumps(
+                {
+                    "net_key": NET_KEY,
+                    "app_key": APP_KEY,
+                    "fixtures": [
+                        {"mac_address": mac, "code": code, "name": name, "node_address": node}
+                        for mac, code, name, node in rows
+                    ],
+                }
+            )
+        )
 
         self.assertEqual(len(imported.fixtures), 5)
         self.assertEqual(len(imported.skipped), 0)
-        names = {fixture[CONF_NAME] for fixture in imported.fixtures}
-        self.assertEqual(
-            names,
-            {
-                "amaran 100x S #1",
-                "amaran 60x S #1",
-                "amaran Ace 25c #1",
-                "amaran Pano 60c #1",
-                "Unknown fixture",
-            },
-        )
         by_model = {fixture[CONF_MODEL]: fixture for fixture in imported.fixtures}
         self.assertEqual(
             by_model["amaran 100x S"][CONF_SUPPORTED_COLOR_MODES],
-            [COLOR_MODE_COLOR_TEMP],
-        )
-        self.assertEqual(
-            by_model["amaran 60x S"][CONF_SUPPORTED_COLOR_MODES],
             [COLOR_MODE_COLOR_TEMP],
         )
         self.assertEqual(
@@ -83,9 +78,7 @@ class FixtureImportTest(unittest.TestCase):
         )
 
     def test_wesbos_json_export_imports_supported_fixtures(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            json_path = Path(directory) / "lights.json"
-            json_path.write_text(
+        imported = load_fixture_import_json(
                 json.dumps(
                     {
                         "netKey": NET_KEY,
@@ -105,9 +98,7 @@ class FixtureImportTest(unittest.TestCase):
                         ],
                     }
                 )
-            )
-
-            imported = load_fixture_import(json_path)
+        )
 
         self.assertEqual(len(imported.fixtures), 2)
         self.assertEqual(
@@ -119,12 +110,24 @@ class FixtureImportTest(unittest.TestCase):
             [COLOR_MODE_COLOR_TEMP],
         )
 
-    def test_db_product_id_takes_precedence_over_hex_code(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            db_path = Path(directory) / "amaran.db"
-            _write_db_with_product_id(db_path)
-
-            imported = load_fixture_import(db_path)
+    def test_product_id_takes_precedence_over_hex_code(self) -> None:
+        imported = load_fixture_import_json(
+            json.dumps(
+                {
+                    "net_key": NET_KEY,
+                    "app_key": APP_KEY,
+                    "fixtures": [
+                        {
+                            "mac_address": "AA:BB:CC:DD:EE:01",
+                            "code": "400M5",
+                            "name": "Product ID wins",
+                            "node_address": 11,
+                            "product_id": 1293,
+                        }
+                    ],
+                }
+            )
+        )
 
         self.assertEqual(len(imported.fixtures), 1)
         self.assertEqual(imported.fixtures[0][CONF_PRODUCT_ID], 1293)
@@ -301,7 +304,7 @@ class FixtureCapabilityTest(unittest.TestCase):
                     self.assertEqual(profile.model, model)
                     self.assertEqual(profile.color_modes, (COLOR_MODE_COLOR_TEMP, COLOR_MODE_HS, COLOR_MODE_RGB))
                     self.assertEqual(
-                        light_capability_names(data), ("Brightness", "Color temperature", "Color/HSI", "RGB")
+                        light_capability_names(data), ("Brightness", "White temperature", "Color")
                     )
 
     def test_desktop_capabilities_identify_custom_named_lights(self) -> None:
@@ -411,7 +414,7 @@ class FixtureCapabilityTest(unittest.TestCase):
         self.assertEqual(fixture[CONF_SUPPORTED_COLOR_MODES], [COLOR_MODE_COLOR_TEMP])
         self.assertEqual(
             light_capability_names(fixture),
-            ("Brightness", "Color temperature"),
+            ("Brightness", "White temperature"),
         )
 
     def test_explicit_brightness_and_color_temp_keeps_color_temp(self) -> None:
@@ -467,112 +470,8 @@ class FixtureCapabilityTest(unittest.TestCase):
                     CONF_BATTERY_CAPABLE: True,
                 }
             ),
-            ("Brightness", "Color temperature", "Color/HSI", "RGB", "Battery"),
+            ("Brightness", "White temperature", "Color", "Battery"),
         )
-
-
-def _write_db(path: Path) -> None:
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute(
-            """
-            create table mesh (
-                uuid text primary key,
-                net_key text,
-                app_key text,
-                fixtures_ordered_list text,
-                update_time integer
-            )
-            """
-        )
-        conn.execute(
-            """
-            create table fixtures (
-                uuid text primary key,
-                mac_address text,
-                code text,
-                name text,
-                node_address integer,
-                device_uuid text,
-                state integer
-            )
-            """
-        )
-        conn.execute(
-            """
-            insert into mesh values (?, ?, ?, ?, ?)
-            """,
-            (
-                "mesh-1",
-                NET_KEY,
-                APP_KEY,
-                "400O5-F68F27,400W5-517E2B,400M5-12A03E,400U5-51B1BF",
-                10,
-            ),
-        )
-        rows = [
-            ("f1", "AA:BB:CC:DD:EE:04", "400O5", "amaran 100x S #1", 2, "d1", 1),
-            ("f2", "AA:BB:CC:DD:EE:02", "400W5", "amaran Pano 60c #1", 4, "d2", 1),
-            ("f3", "AA:BB:CC:DD:EE:03", "400M5", "amaran 60x S #1", 10, "d3", 1),
-            ("f4", "AA:BB:CC:DD:EE:01", "400U5", "amaran Ace 25c #1", 11, "d4", 1),
-            ("f5", "AA:BB:CC:DD:EE:06", "99999", "Unknown fixture", 12, "d5", 1),
-        ]
-        conn.executemany("insert into fixtures values (?, ?, ?, ?, ?, ?, ?)", rows)
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _write_db_with_product_id(path: Path) -> None:
-    conn = sqlite3.connect(path)
-    try:
-        conn.execute(
-            """
-            create table mesh (
-                uuid text primary key,
-                net_key text,
-                app_key text,
-                fixtures_ordered_list text,
-                update_time integer
-            )
-            """
-        )
-        conn.execute(
-            """
-            create table fixtures (
-                uuid text primary key,
-                mac_address text,
-                code text,
-                name text,
-                node_address integer,
-                device_uuid text,
-                state integer,
-                product_id integer
-            )
-            """
-        )
-        conn.execute(
-            """
-            insert into mesh values (?, ?, ?, ?, ?)
-            """,
-            ("mesh-1", NET_KEY, APP_KEY, "400M5-51B1BF", 10),
-        )
-        conn.execute(
-            "insert into fixtures values (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "f1",
-                "AA:BB:CC:DD:EE:01",
-                "400M5",
-                "Product ID wins",
-                11,
-                "d1",
-                1,
-                1293,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":

@@ -376,7 +376,7 @@ class AmaranSidusLight(LightEntity, RestoreEntity):
         if self.available:
             return
         raise HomeAssistantError(
-            f"{self._client.name} connection is {self._client.transport_state}"
+            f"{self._client.name} isn't connected right now. Try again in a moment."
         )
 
     def _sync_attrs(self) -> None:

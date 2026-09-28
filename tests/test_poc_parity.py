@@ -7,7 +7,6 @@ import unittest
 
 from custom_components.amaran.commands import (
     brightness_payloads,
-    brightness_cct_payloads,
     cct_payloads,
     hsi_payloads,
     power_off_payloads,
@@ -78,12 +77,6 @@ class PocParityTest(unittest.TestCase):
         self.assertEqual(
             hsi_payloads(brightness=204, hue=45, saturation=60),
             [hsi_payload(hue=45, saturation=60, intensity=800)],
-        )
-
-    def test_legacy_brightness_cct_wrapper_still_maps_to_cct_packet(self) -> None:
-        self.assertEqual(
-            brightness_cct_payloads(brightness=153, kelvin=5600),
-            cct_payloads(brightness=153, kelvin=5600),
         )
 
     def test_power_off_packet_matches_poc(self) -> None:

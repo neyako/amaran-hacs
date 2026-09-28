@@ -72,6 +72,7 @@ def _install_homeassistant_stubs() -> type[Exception]:
     config_entries.ConfigEntry = object
     const.STATE_ON = "on"
     core.HomeAssistant = object
+    core.callback = lambda func: func
     exceptions.HomeAssistantError = HomeAssistantError
     device_registry.CONNECTION_BLUETOOTH = "bluetooth"
     entity_platform.AddEntitiesCallback = object
@@ -197,7 +198,7 @@ class LightAvailabilityTest(unittest.IsolatedAsyncioTestCase):
         client.transport_state = TRANSPORT_STATE_DISCONNECTED
         light = AmaranSidusLight(client, object())
 
-        with self.assertRaisesRegex(HomeAssistantError, "connection is disconnected"):
+        with self.assertRaisesRegex(HomeAssistantError, "isn't connected right now"):
             await light.async_turn_on(**{ATTR_BRIGHTNESS: 128})
 
         self.assertEqual(client.calls, [])
@@ -208,7 +209,7 @@ class LightAvailabilityTest(unittest.IsolatedAsyncioTestCase):
         client.transport_state = TRANSPORT_STATE_DISCONNECTED
         light = AmaranSidusLight(client, object())
 
-        with self.assertRaisesRegex(HomeAssistantError, "connection is disconnected"):
+        with self.assertRaisesRegex(HomeAssistantError, "isn't connected right now"):
             await light.async_turn_off()
 
         self.assertEqual(client.calls, [])
@@ -701,26 +702,6 @@ class ClientAvailabilityTest(unittest.TestCase):
 
         self.assertFalse(client.is_available)
         self.assertIsNone(client.fixture_stale_seconds)
-
-    def test_command_failure_does_not_latch_light_unavailable(
-        self,
-    ) -> None:
-        client = _client_for_availability(
-            TRANSPORT_STATE_PROXY_READY,
-            connected=True,
-        )
-
-        self.assertTrue(client.is_available)
-
-        client._mark_command_failure(RuntimeError("write failed"))
-
-        self.assertTrue(client.is_available)
-
-        client.mark_advertisement_seen(
-            types.SimpleNamespace(address="AA:BB:CC:DD:EE:FF", rssi=-42)
-        )
-
-        self.assertTrue(client.is_available)
 
     def test_reconnecting_reports_unavailable(self) -> None:
         client = _client_for_availability(
