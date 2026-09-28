@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
+from aiohttp import ClientError
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import (
+    CONF_ACCOUNT,
     CONF_ADDRESS,
     CONF_APP_KEY,
     CONF_BLE_MAC,
@@ -23,13 +31,13 @@ from .const import (
     CONF_NAME,
     CONF_NET_KEY,
     CONF_NODE_ADDRESS,
+    CONF_PASSWORD,
     CONF_PROXY_ADDRESS,
     CONF_PROXY_CANDIDATES,
     CONF_PROXY_MAC,
     CONF_PROXY_SELECTION,
     CONF_SEQUENCE,
     CONF_SELECTED_FIXTURE_IDS,
-    CONF_SETUP_METHOD,
     CONF_SOURCE_ADDRESS,
     CONF_TTL,
     CONF_TRANSPORT_MODE,
@@ -46,11 +54,9 @@ from .const import (
     IMPORT_METHODS,
     PROXY_SELECTION_AUTO,
     PROXY_SELECTION_MANUAL,
-    SETUP_METHOD_IMPORT,
-    SETUP_METHOD_MANUAL,
-    SETUP_METHODS,
     TRANSPORT_MODE_PERSISTENT,
 )
+from .cloud import CloudAuthError, CloudError, async_fetch_import_payload
 from .fixtures import (
     FixtureImport,
     default_desktop_db_path,
@@ -60,6 +66,7 @@ from .fixtures import (
     light_capability_names,
     load_fixture_import,
     load_fixture_import_json,
+    load_fixture_import_payload,
 )
 from .discovery import bluetooth_discovery_enabled
 from .protocol import normalize_hex_key
@@ -231,36 +238,55 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Choose import or manual setup."""
+        """Choose how to add lights."""
 
+        return self.async_show_menu(
+            step_id="user", menu_options=["cloud", "import", "manual"]
+        )
+
+    async def async_step_cloud(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Read lights from the amaran account; credentials are not stored."""
+
+        errors: dict[str, str] = {}
         if user_input is not None:
-            if CONF_IMPORT_PATH in user_input and str(
-                user_input.get(CONF_IMPORT_PATH) or ""
-            ).strip():
-                return await self.async_step_import_path(user_input)
-            if CONF_IMPORT_JSON in user_input and str(
-                user_input.get(CONF_IMPORT_JSON) or ""
-            ).strip():
-                return await self.async_step_import_json(user_input)
-            if CONF_ADDRESS in user_input:
-                return await self.async_step_manual(user_input)
-            method = user_input.get(CONF_SETUP_METHOD)
-            if method == SETUP_METHOD_IMPORT:
-                return await self.async_step_import()
-            if method == SETUP_METHOD_MANUAL:
-                return await self.async_step_manual()
+            try:
+                payload = await async_fetch_import_payload(
+                    async_get_clientsession(self.hass),
+                    str(user_input[CONF_ACCOUNT]).strip(),
+                    str(user_input[CONF_PASSWORD]),
+                    self.hass.config.country,
+                )
+                imported = load_fixture_import_payload(
+                    payload, source="your amaran account"
+                )
+            except CloudAuthError:
+                errors["base"] = "invalid_auth"
+            except (CloudError, ClientError, TimeoutError):
+                errors["base"] = "cannot_connect"
+            except ValueError:
+                errors["base"] = "no_lights"
+            else:
+                self._pending_import = _finalize_import_data({}, imported)
+                return await self.async_step_select_fixture()
 
         return self.async_show_form(
-            step_id="user",
+            step_id="cloud",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_SETUP_METHOD,
-                        default=SETUP_METHOD_IMPORT,
-                    ): vol.In(SETUP_METHODS)
+                    vol.Required(CONF_ACCOUNT): TextSelector(
+                        TextSelectorConfig(autocomplete="username")
+                    ),
+                    vol.Required(CONF_PASSWORD): TextSelector(
+                        TextSelectorConfig(
+                            type=TextSelectorType.PASSWORD,
+                            autocomplete="current-password",
+                        )
+                    ),
                 }
             ),
-            errors={},
+            errors=errors,
         )
 
     async def async_step_manual(

@@ -2,10 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "title": "Add amaran",
-        "description": "Import supported lights from amaran Desktop, or add one light manually.",
+        "title": "Add amaran lights",
+        "description": "Choose how to add your lights.",
+        "menu_options": {
+          "cloud": "Sign in with your amaran account",
+          "import": "Paste an export from amaran Desktop",
+          "manual": "Enter keys manually"
+        }
+      },
+      "cloud": {
+        "title": "Sign in to amaran",
+        "description": "Use the account from the amaran app. Home Assistant reads your lights once and doesn't save your password.",
         "data": {
-          "setup_method": "Setup method"
+          "account": "Email or phone number",
+          "password": "Password"
         }
       },
       "import": {
@@ -65,6 +75,9 @@
       }
     },
     "error": {
+      "invalid_auth": "Wrong email, phone number, or password.",
+      "cannot_connect": "Couldn't reach amaran. Check your connection and try again.",
+      "no_lights": "No supported lights were found in this account.",
       "invalid_input": "Check the address, optional BLE connection MAC, advanced addresses, sequence, IV index, TTL, and 32-character hex keys."
     },
     "abort": {

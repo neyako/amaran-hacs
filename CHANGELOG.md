@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add "Sign in with your amaran account" setup. Home Assistant signs in once,
+  reads the lights and keys the amaran app syncs to the account, and stores
+  neither the password nor the session token. Desktop export stays available.
+
 ## v0.5.0
 
 - Add a native Effect preset dropdown to each supported color light's device

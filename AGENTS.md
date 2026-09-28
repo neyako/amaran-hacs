@@ -24,7 +24,19 @@ Supported:
 
 ### Mesh Credentials
 
-Source of truth:
+The amaran apps sync every light and the mesh keys to the Sidus account.
+Primary setup signs in to that account (`cloud.py`):
+
+* `POST https://{us|eu|cn}.sidus.link/uc/user/login` with `email`,
+  `phone_number`, `password`, `area` (country code) and headers
+  `platform: 2`, `request_source: 4` (without them: 10001). Code 4001 names the
+  account's region in `data.OtherRegionUser[].area`; retry there.
+* `GET .../amaran/pack/query` with the `Token` header returns `meshs.existing`
+  (net/app keys) and `fixtures.existing` (MAC, node address, code, name).
+* Region per country comes from the Android app's `country_region_data.json`.
+* Never store the password or token; only the resulting light data.
+
+Desktop fallback:
 
 Amaran Desktop SQLite:
 
@@ -86,13 +98,12 @@ Setup flow is import-based.
 
 ### Import Model
 
-User exports JSON.
+User signs in or pastes an export, then ticks the lights to add.
 
-User imports ONE LIGHT at a time.
+Each ticked light becomes its own config entry. Per-light config entries are
+intentional.
 
-Do NOT automatically create all lights from one JSON file.
-
-Per-light config entries are intentional.
+Do NOT create lights the user did not select.
 
 ---
 
@@ -233,12 +244,12 @@ the light entity and uses its existing service/encoder path.
 
 ### Known Working Workflow
 
-1. User runs export script.
-2. User pastes JSON.
-3. User selects light.
-4. Integration creates one light entry.
-5. Persistent mesh transport starts.
-6. Light becomes controllable.
+1. User signs in with their amaran account, or runs the export script and
+   pastes the JSON.
+2. User selects lights.
+3. Integration creates one entry per selected light.
+4. Persistent mesh transport starts.
+5. Lights become controllable.
 
 ---
 
