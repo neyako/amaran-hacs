@@ -25,6 +25,7 @@ from .protocol import (
     build_mesh_proxy_pdu,
     build_proxy_filter_pdu,
     decode_mesh_proxy_access,
+    decode_secure_network_beacon,
     is_proxy_filter_status,
 )
 
@@ -49,7 +50,6 @@ class SidusTransportSettings:
     app_key: bytes
     node_address: int
     source_address: int
-    iv_index: int
     ttl: int
     proxy_selection: str = PROXY_SELECTION_AUTO
     proxy_address: str = ""
@@ -347,7 +347,8 @@ class SidusPersistentTransport:
             from homeassistant.exceptions import HomeAssistantError
 
             raise HomeAssistantError(
-                "Bluetooth Mesh sequence exhausted; IV update is not implemented"
+                "Bluetooth Mesh sequence numbers are used up until the network's "
+                "IV index changes"
             )
 
         self._sequence_manager.sequence = last_sequence + 1
@@ -574,6 +575,7 @@ class SidusPersistentTransport:
         """
 
         self._metrics.proxy_filter_set = False
+        self._sequence_manager.switch_iv_if_needed()
         # The proxy node (the light) tracks this sequence for our source
         # address, so it must stay monotonic with the command writes that
         # follow on this connection. _discover_proxy_in runs before any command
@@ -585,7 +587,7 @@ class SidusPersistentTransport:
             app_key=self._settings.app_key,
             src=self._settings.source_address,
             seq=seq,
-            iv_index=self._settings.iv_index,
+            iv_index=self._sequence_manager.iv_index,
         )
         try:
             await client.write_gatt_char(write_target, pdu, response=False)
@@ -620,6 +622,17 @@ class SidusPersistentTransport:
         self._metrics.notification_count += 1
         self._metrics.last_notification_time = time.time()
         self._ever_received_notification = True
+        beacon = decode_secure_network_beacon(net_key=self._settings.net_key, proxy_pdu=raw)
+        if beacon is not None:
+            self._sequence_manager.note_beacon(
+                beacon.iv_index, iv_update=beacon.iv_update
+            )
+            _LOGGER.debug(
+                "Sidus network beacon iv_index=%s iv_update=%s",
+                beacon.iv_index,
+                beacon.iv_update,
+            )
+            return
         if is_proxy_filter_status(raw):
             self._metrics.filter_status_count += 1
             if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -632,7 +645,7 @@ class SidusPersistentTransport:
         decoded = decode_mesh_proxy_access(
             net_key=self._settings.net_key,
             app_key=self._settings.app_key,
-            iv_index=self._settings.iv_index,
+            iv_index=self._sequence_manager.network_iv_index,
             proxy_pdu=raw,
         )
         if decoded is None:
@@ -715,6 +728,7 @@ class SidusPersistentTransport:
         first_payload_delay: float,
     ) -> None:
         last_sent: tuple[int, bytes] | None = None
+        iv_index = self._sequence_manager.iv_index
         try:
             for index, (current_sequence, sidus_payload) in enumerate(
                 zip(sequences, sidus_payloads)
@@ -725,7 +739,7 @@ class SidusPersistentTransport:
                     src=self._settings.source_address,
                     dst=node_address,
                     seq=current_sequence,
-                    iv_index=self._settings.iv_index,
+                    iv_index=iv_index,
                     sidus_payload=sidus_payload,
                     ttl=self._settings.ttl,
                 )
@@ -741,7 +755,7 @@ class SidusPersistentTransport:
                         self._resolved_address(),
                         current_sequence,
                         self._settings.source_address,
-                        self._settings.iv_index,
+                        iv_index,
                         self._settings.ttl,
                         sidus_payload.hex(" "),
                         access_payload(sidus_payload).hex(" "),
@@ -779,7 +793,7 @@ class SidusPersistentTransport:
                     "node_address": node_address,
                     "light_name": fixture_name,
                     "light_mac": fixture_mac,
-                    "iv_index": self._settings.iv_index,
+                    "iv_index": iv_index,
                     "ttl": self._settings.ttl,
                     "pdu_len": len(proxy_pdu),
                     "pdu_header": proxy_pdu[:2].hex(),
@@ -807,13 +821,20 @@ class SidusPersistentTransport:
             # reserves the lowest sequence) before the command sequences below.
             client = await self._ensure_connected()
             self._set_state(TRANSPORT_STATE_PROXY_READY)
+            write_target = self._write_target or MESH_PROXY_IN_UUID
+            if self._sequence_manager.switch_iv_if_needed():
+                _LOGGER.info(
+                    "Bluetooth Mesh IV index is now %s", self._sequence_manager.iv_index
+                )
+                # The proxy filter was set under the old IV index; renew it.
+                await self._set_proxy_filter(client, write_target)
             sequences = self._reserve_sequences(
                 len(request.sidus_payloads), node_address=request.node_address
             )
             await self._save_sequence()
             await self._write_reserved(
                 client=client,
-                write_target=self._write_target or MESH_PROXY_IN_UUID,
+                write_target=write_target,
                 sequences=sequences,
                 sidus_payloads=request.sidus_payloads,
                 node_address=request.node_address,

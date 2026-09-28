@@ -65,6 +65,14 @@ class SidusPowerInfo:
 
 
 @dataclass(frozen=True)
+class SecureNetworkBeacon:
+    """Authenticated network state a proxy sends when a client connects."""
+
+    iv_index: int
+    iv_update: bool
+
+
+@dataclass(frozen=True)
 class DecodedAccessMessage:
     """Decoded unsegmented Mesh Proxy access payload."""
 
@@ -550,6 +558,28 @@ def build_proxy_filter_pdu(
     return b"\x02" + network_pdu
 
 
+def decode_secure_network_beacon(
+    *, net_key: bytes, proxy_pdu: bytes
+) -> SecureNetworkBeacon | None:
+    """Decode a Secure Network beacon (Mesh Profile 3.9.3) for this network.
+
+    Returns None for other PDUs, other networks, or a bad authentication value,
+    so a forged beacon can't move the IV index.
+    """
+
+    if len(proxy_pdu) != 23 or (proxy_pdu[0] & 0x3F) != 0x01 or proxy_pdu[1] != 0x01:
+        return None
+    flags = proxy_pdu[2]
+    if proxy_pdu[3:11] != mesh_network_id(net_key):
+        return None
+    if _aes_cmac(_beacon_key(net_key), proxy_pdu[2:15])[:8] != proxy_pdu[15:23]:
+        return None
+    return SecureNetworkBeacon(
+        iv_index=int.from_bytes(proxy_pdu[11:15], "big"),
+        iv_update=bool(flags & 0x02),
+    )
+
+
 def is_proxy_filter_status(proxy_pdu: bytes) -> bool:
     """Return true for a Proxy Configuration Filter Status PDU (type 0x02)."""
 
@@ -563,7 +593,11 @@ def decode_mesh_proxy_access(
     iv_index: int,
     proxy_pdu: bytes,
 ) -> DecodedAccessMessage | None:
-    """Decode one unsegmented Mesh Proxy Data Out network PDU if possible."""
+    """Decode one unsegmented Mesh Proxy Data Out network PDU if possible.
+
+    ``iv_index`` is the network's current IV index; the PDU's IVI bit selects
+    it or the previous one, as senders may still use IV-1 during an update.
+    """
 
     if len(proxy_pdu) < 15 or (proxy_pdu[0] & 0x3F) != 0x00:
         return None
@@ -575,6 +609,8 @@ def decode_mesh_proxy_access(
     if (network_pdu[0] & 0x7F) != keys.nid:
         return None
 
+    if (network_pdu[0] >> 7) != (iv_index & 1) and iv_index > 0:
+        iv_index -= 1
     iv_bytes = iv_index.to_bytes(4, "big")
     obfuscated_header = network_pdu[1:7]
     encrypted_network = network_pdu[7:]
@@ -701,6 +737,12 @@ def mesh_network_id(net_key: bytes) -> bytes:
 
     t = _aes_cmac(_s1(b"smk3"), net_key)
     return _aes_cmac(t, b"id64\x01")[-8:]
+
+
+@lru_cache(maxsize=32)
+def _beacon_key(net_key: bytes) -> bytes:
+    t = _aes_cmac(_s1(b"nkbk"), net_key)
+    return _aes_cmac(t, b"id128\x01")
 
 
 def _k4(app_key: bytes) -> int:

@@ -29,9 +29,25 @@ APP_KEY = bytes.fromhex("ffeeddccbbaa99887766554433221100")
 
 
 class FakeSequenceManager:
+    """Keeps the real manager's IV rules without Home Assistant storage."""
+
     def __init__(self, sequence: int = 100000) -> None:
         self.lock = asyncio.Lock()
         self.sequence = sequence
+        self.iv_index = 0
+        self.network_iv_index = 0
+        self._iv_update = False
+
+    def note_beacon(self, iv_index: int, *, iv_update: bool) -> None:
+        self.network_iv_index = iv_index
+        self._iv_update = iv_update
+
+    def switch_iv_if_needed(self) -> bool:
+        target = self.network_iv_index - (1 if self._iv_update else 0)
+        if target <= self.iv_index:
+            return False
+        self.iv_index, self.sequence = target, 0
+        return True
 
 
 class FakeBleDevice:
@@ -248,6 +264,23 @@ class PersistentTransportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transport.last_write["node_address"], 0x000C)
         self.assertEqual(transport.last_write["light_name"], "Pano 60c")
         self.assertEqual(transport.last_write["light_mac"], "AA:BB:CC:DD:EE:02")
+
+        await transport.async_close()
+
+    async def test_new_network_iv_index_renews_filter_before_next_command(self) -> None:
+        sequence_manager = FakeSequenceManager()
+        transport = FakePersistentTransport(sequence_manager=sequence_manager)
+        await transport.async_setup()
+        await transport.async_send_siduses([power_payload(True)])
+        # As the notification handler does for an authenticated beacon.
+        sequence_manager.note_beacon(1, iv_update=False)
+
+        await transport.async_send_siduses([power_payload(False)])
+
+        writes = [pdu for _target, pdu, _response in transport.clients[0].writes]
+        self.assertEqual([pdu[0] for pdu in writes], [0x00, 0x02, 0x00])
+        self.assertEqual(writes[2][1] >> 7, 1)  # IVI bit of IV index 1
+        self.assertEqual(sequence_manager.sequence, 2)  # filter 0, command 1
 
         await transport.async_close()
 
@@ -543,7 +576,6 @@ def _settings(
         app_key=APP_KEY,
         node_address=node_address,
         source_address=source_address,
-        iv_index=0,
         ttl=7,
         proxy_selection=proxy_selection,
         proxy_address="AA:BB:CC:DD:EE:FF",
