@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import json
+import random
 import re
 from typing import Any
 
@@ -30,7 +32,9 @@ from .const import (
     CONF_PRODUCT_ID,
     CONF_SELECTED_FIXTURE,
     CONF_SELECTED_FIXTURE_IDS,
+    CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
+    SOURCE_ADDRESS_POOL,
 )
 from .product_catalog import (
     classify_product_name,
@@ -197,6 +201,34 @@ def fixture_entry_data(
         ):
         data.pop(key, None)
     return data
+
+
+def source_address_for_import(
+    lights: list[dict[str, Any]], existing: Iterable[Mapping[str, Any]]
+) -> int:
+    """Return the address Home Assistant sends from for newly added lights.
+
+    Reuse the address of an existing entry on the same network, so this Home
+    Assistant keeps one counter per network. Otherwise pick a fresh address:
+    another install may already have pushed a light's counter for any address
+    it used, and the light would silently ignore us.
+    """
+
+    networks = {
+        normalize_hex_key(str(light[CONF_NET_KEY]), field="network key")
+        for light in lights
+        if light.get(CONF_NET_KEY)
+    }
+    for data in existing:
+        if (
+            data.get(CONF_NET_KEY)
+            and data.get(CONF_SOURCE_ADDRESS) is not None
+            and normalize_hex_key(str(data[CONF_NET_KEY]), field="network key")
+            in networks
+        ):
+            return int(data[CONF_SOURCE_ADDRESS])
+    taken = {int(light.get(CONF_NODE_ADDRESS) or 0) for light in lights}
+    return random.choice([addr for addr in SOURCE_ADDRESS_POOL if addr not in taken])
 
 
 def fixture_entries_for_selection(

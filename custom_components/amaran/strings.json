@@ -30,7 +30,7 @@
             "name": "Advanced settings",
             "description": "Leave these alone unless you know you need them.",
             "data": {
-              "source_address": "Home Assistant address",
+              "source_address": "Home Assistant address (blank picks a free one)",
               "proxy_mac": "Preferred light to connect through (Bluetooth MAC)",
               "iv_index": "IV index",
               "sequence": "Starting sequence",
@@ -55,7 +55,7 @@
           "ble_mac": "Physical Bluetooth MAC (if different)",
           "proxy_mac": "Preferred light to connect through (Bluetooth MAC)",
           "node_address": "Light address",
-          "source_address": "Home Assistant address",
+          "source_address": "Home Assistant address (blank picks a free one)",
           "net_key": "Network key",
           "app_key": "App key",
           "iv_index": "IV index",

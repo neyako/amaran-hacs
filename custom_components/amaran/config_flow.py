@@ -48,7 +48,6 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_NODE_ADDRESS,
     DEFAULT_SEQUENCE,
-    DEFAULT_SOURCE_ADDRESS,
     DEFAULT_TTL,
     DOMAIN,
     PROXY_SELECTION_AUTO,
@@ -63,6 +62,7 @@ from .fixtures import (
     fixture_unique_id,
     load_fixture_import_json,
     load_fixture_import_payload,
+    source_address_for_import,
 )
 from .protocol import normalize_hex_key
 
@@ -107,7 +107,7 @@ def _validate_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
     _validate_advanced(data)
     if not 1 <= data[CONF_NODE_ADDRESS] <= 0x7FFF:
         raise ValueError(CONF_NODE_ADDRESS)
-    if data[CONF_NODE_ADDRESS] == data[CONF_SOURCE_ADDRESS]:
+    if data.get(CONF_SOURCE_ADDRESS) == data[CONF_NODE_ADDRESS]:
         raise ValueError(CONF_SOURCE_ADDRESS)
     for key, field in ((CONF_NET_KEY, "network key"), (CONF_APP_KEY, "app key")):
         try:
@@ -119,11 +119,20 @@ def _validate_user_input(user_input: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_advanced(data: dict[str, Any]) -> None:
-    """Normalize the advanced connection fields in place."""
+    """Normalize the advanced connection fields in place.
+
+    A blank source address is left out; the flow picks one before saving.
+    """
 
     _normalize_proxy_settings(data)
+    if source := str(data.pop(CONF_SOURCE_ADDRESS, None) or "").strip():
+        try:
+            data[CONF_SOURCE_ADDRESS] = _int_from_user(source)
+        except ValueError as err:
+            raise ValueError(CONF_SOURCE_ADDRESS) from err
+        if not 1 <= data[CONF_SOURCE_ADDRESS] <= 0x7FFF:
+            raise ValueError(CONF_SOURCE_ADDRESS)
     for key, default, maximum, minimum in (
-        (CONF_SOURCE_ADDRESS, DEFAULT_SOURCE_ADDRESS, 0x7FFF, 1),
         (CONF_IV_INDEX, DEFAULT_IV_INDEX, 0xFFFFFFFF, 0),
         (CONF_SEQUENCE, DEFAULT_SEQUENCE, 0xFFFFFF, 0),
         (CONF_TTL, DEFAULT_TTL, 0x7F, 0),
@@ -332,10 +341,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(ADVANCED): section(
                         vol.Schema(
                             {
-                                vol.Required(
-                                    CONF_SOURCE_ADDRESS,
-                                    default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}",
-                                ): str,
+                                vol.Optional(CONF_SOURCE_ADDRESS, default=""): str,
                                 vol.Optional(CONF_PROXY_MAC, default=""): str,
                                 vol.Required(
                                     CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)
@@ -374,6 +380,9 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if err.args:
                     errors[str(err.args[0])] = "invalid_input"
             else:
+                data.setdefault(
+                    CONF_SOURCE_ADDRESS, self._async_source_address([data])
+                )
                 return await self._async_create_fixture_entry(data)
 
         return self.async_show_form(
@@ -387,9 +396,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_NODE_ADDRESS, default=str(DEFAULT_NODE_ADDRESS)
                     ): str,
-                    vol.Required(
-                        CONF_SOURCE_ADDRESS, default=f"0x{DEFAULT_SOURCE_ADDRESS:04x}"
-                    ): str,
+                    vol.Optional(CONF_SOURCE_ADDRESS, default=""): str,
                     vol.Required(CONF_NET_KEY): str,
                     vol.Required(CONF_APP_KEY): str,
                     vol.Required(CONF_IV_INDEX, default=str(DEFAULT_IV_INDEX)): str,
@@ -410,6 +417,7 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_user()
 
         catalog = list(data[CONF_FIXTURE_CATALOG])
+        data.setdefault(CONF_SOURCE_ADDRESS, self._async_source_address(catalog))
         conflicts = _address_conflicts(catalog, data[CONF_SOURCE_ADDRESS])
         skip_ids = frozenset(self._async_current_ids()) | conflicts.keys()
         choices = {
@@ -462,6 +470,15 @@ class AmaranSidusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="select_fixture",
             data_schema=schema,
             description_placeholders=placeholders,
+        )
+
+    @callback
+    def _async_source_address(self, lights: list[dict[str, Any]]) -> int:
+        """Pick the address to send from when the user left it blank."""
+
+        return source_address_for_import(
+            lights,
+            (entry.data for entry in self._async_current_entries(include_ignore=False)),
         )
 
     async def _async_create_fixture_entry(

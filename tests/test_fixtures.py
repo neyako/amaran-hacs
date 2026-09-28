@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
 from custom_components.amaran.const import (
     COLOR_MODE_BRIGHTNESS,
@@ -16,8 +17,12 @@ from custom_components.amaran.const import (
     CONF_PRODUCT_ID,
     CONF_MODEL,
     CONF_NAME,
+    CONF_NET_KEY,
     CONF_NODE_ADDRESS,
+    CONF_SOURCE_ADDRESS,
     CONF_SUPPORTED_COLOR_MODES,
+    DEFAULT_SOURCE_ADDRESS,
+    SOURCE_ADDRESS_POOL,
 )
 from custom_components.amaran.fixtures import (
     detect_fixture_profile,
@@ -25,6 +30,7 @@ from custom_components.amaran.fixtures import (
     is_battery_capable_light,
     light_capability_names,
     load_fixture_import_json,
+    source_address_for_import,
     supported_color_modes_for_fixture,
 )
 from custom_components.amaran.redaction import REDACTED, redact_sensitive
@@ -472,6 +478,34 @@ class FixtureCapabilityTest(unittest.TestCase):
             ),
             ("Brightness", "White temperature", "Color", "Battery"),
         )
+
+
+class SourceAddressTest(unittest.TestCase):
+    def test_reuses_address_already_used_on_the_same_network(self) -> None:
+        lights = [{CONF_NET_KEY: NET_KEY, CONF_NODE_ADDRESS: 13}]
+        existing = [
+            {CONF_NET_KEY: APP_KEY, CONF_SOURCE_ADDRESS: 0x7123},
+            {
+                CONF_NET_KEY: NET_KEY.upper(),
+                CONF_SOURCE_ADDRESS: DEFAULT_SOURCE_ADDRESS,
+            },
+        ]
+
+        self.assertEqual(
+            source_address_for_import(lights, existing), DEFAULT_SOURCE_ADDRESS
+        )
+
+    def test_new_network_gets_a_fresh_address_no_light_uses(self) -> None:
+        taken = SOURCE_ADDRESS_POOL[0]
+        lights = [{CONF_NET_KEY: NET_KEY, CONF_NODE_ADDRESS: taken}]
+
+        with mock.patch(
+            "custom_components.amaran.fixtures.random.choice", side_effect=min
+        ):
+            address = source_address_for_import(lights, [])
+
+        self.assertEqual(address, taken + 1)
+        self.assertNotIn(DEFAULT_SOURCE_ADDRESS, SOURCE_ADDRESS_POOL)
 
 
 if __name__ == "__main__":

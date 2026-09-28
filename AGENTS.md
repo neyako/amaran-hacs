@@ -257,10 +257,16 @@ the light entity and uses its existing service/encoder path.
 
 ### Sequence Numbers and IV Index
 
-* Home Assistant sends from `DEFAULT_SOURCE_ADDRESS` 0x7FFF. The apps give
-  lights addresses counting up from 2; entries on the old default 15 migrate
-  to 0x7FFF (config entry 2.4). Entity unique IDs and the light state cache
-  include the source address, so moving it must move both
+* Lights silently drop messages whose sequence is at or below the last one
+  seen from that source address, and that memory survives HA going offline.
+  So a new setup must never start on an address another install already used.
+  Setup reuses the address of an existing entry on the same network, else
+  picks a random free one from `SOURCE_ADDRESS_POOL` 0x7000-0x7FFE
+  (`source_address_for_import`). A typed address overrides both.
+* Entries from 0.6.0 send from `DEFAULT_SOURCE_ADDRESS` 0x7FFF and keep it.
+  The apps give lights addresses counting up from 2; entries on the old
+  default 15 migrate to 0x7FFF (config entry 2.4). Entity unique IDs and the
+  light state cache include the source address, so moving it must move both
   (`_async_move_source_identity`); the sequence store starts fresh.
 * Proxies send an authenticated Secure Network beacon on connect. The sequence
   manager tracks its IV index: send with IV-1 while an IV update is in
